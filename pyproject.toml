@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dbridge"
-dynamic = ["version"]
+version = "0.2.10"
 description = ''
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = "MIT"
 keywords = []
-authors = [{ name = "e3oroush", email = "ebrahim.soroush@gmail.com" }]
+authors = [{ name = "realEbi", email = "ebrahim.soroush@gmail.com" }]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
@@ -41,30 +41,10 @@ Documentation = "https://github.com/e3oroush/dbridge#readme"
 Issues = "https://github.com/e3oroush/dbridge/issues"
 Source = "https://github.com/e3oroush/dbridge"
 
-[tool.hatch.version]
-path = "src/dbridge/__about__.py"
-
-[tool.hatch.envs.types]
-extra-dependencies = ["mypy>=1.0.0"]
-[tool.hatch.envs.types.scripts]
-check = "mypy --install-types --non-interactive {args:src/dbridge tests}"
-
-[tool.hatch.envs.dev]
-dependencies = [
-  "ruff",
-  "black",
-  "isort",
-  "pyright",
-  "pytest",
-  "ipython",
-  "mysql-connector-python",
-]
-
-[tool.hatch.envs.test]
-dependencies = ["coverage[toml]", "pytest", "pytest-cov", "pytest-mock"]
-[tool.hatch.envs.test.scripts]
-run-coverage = "pytest --cov-config=pyproject.toml --cov=pkg --cov=tests"
-run = "run-coverage --no-cov"
+[dependency-groups]
+dev = ["ruff", "black", "isort", "pyright", "pytest", "ipython"]
+test = ["coverage[toml]", "pytest", "pytest-cov", "pytest-mock"]
+types = ["mypy>=1.0.0"]
 
 [tool.coverage.run]
 source_pkgs = ["dbridge", "tests"]
@@ -78,6 +58,3 @@ tests = ["tests", "*/dbridge/tests"]
 
 [tool.coverage.report]
 exclude_lines = ["no cov", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
-[tool.hatch.envs.default.scripts]
-start_server = "python -m dbridge.server.app"
-extract_table = "python -m dbridge.scripts.extract_table"

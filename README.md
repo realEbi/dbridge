@@ -12,10 +12,9 @@ This project is a server application that tries to serve all the requriments for
 
 ## Table of Contents
 
-## Table of Contents
-
 - [Installation](#installation)
 - [Run the Server](#run-the-server)
+- [Development](#development)
 - [License](#license)
 
 ## Installation
@@ -24,10 +23,44 @@ This project is a server application that tries to serve all the requriments for
 pip install dbridge
 ```
 
+For optional database adapters:
+
+```console
+pip install dbridge[mysql]
+pip install dbridge[postgres]
+pip install dbridge[snowflake]
+```
+
 ## Run the server
 
 ```console
-pythom -m dbridge.server.app
+python -m dbridge.server.app
+```
+
+## Development
+
+Clone the repo and install dependencies with [uv](https://docs.astral.sh/uv/):
+
+```console
+uv sync
+```
+
+Run the server:
+
+```console
+uv run python -m dbridge.server.app
+```
+
+Run tests:
+
+```console
+uv run --group test pytest
+```
+
+Type checking:
+
+```console
+uv run --group types mypy src/dbridge tests
 ```
 
 ## DB Connection
