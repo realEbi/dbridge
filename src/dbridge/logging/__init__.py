@@ -1,8 +1,11 @@
 from logging import getLogger, Logger
 import logging
-from dbridge.config import DEFAULT_LOGGING_LEVEL, APP_NAME
+import os
 
 _loggers = {}
+
+APP_NAME = "dbridge"
+DEFAULT_LOGGING_LEVEL = os.getenv("dbridge_logging_level", "INFO")
 
 
 def get_logger(name: str = APP_NAME, level_name: str = "") -> Logger:
