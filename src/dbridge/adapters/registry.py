@@ -1,10 +1,11 @@
 from dbridge.adapters.base import DBAdapter
+from dbridge.adapters.duckdb import DuckDBAdapter
 from dbridge.adapters.sqlite import SqliteAdapter
 from dbridge.exceptions import AdapterError
 
-# DuckDB is registered in a later slice; mysql/postgres/snowflake are parked.
 _REGISTRY: dict[str, type[DBAdapter]] = {
     "sqlite": SqliteAdapter,
+    "duckdb": DuckDBAdapter,
 }
 
 INSTALLED_ADAPTERS = list(_REGISTRY.keys())
