@@ -28,6 +28,9 @@ dependencies = [
   "pandas==2.2.3",
 ]
 
+[project.scripts]
+dbridge = "dbridge.server:main"
+
 [project.optional-dependencies]
 mysql = ["pymysql"]
 postgres = ["psycopg2"]
