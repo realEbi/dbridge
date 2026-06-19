@@ -13,6 +13,10 @@ class Dispatcher:
             "dbridge/connect": lambda p: engine.connect(p["adapter"], p.get("config", {})),
             "dbridge/disconnect": lambda p: engine.disconnect(p["session_id"]),
             "dbridge/execute": lambda p: engine.execute(p["session_id"], p["sql"]),
+            "dbridge/listDatabases": lambda p: engine.list_databases(p["session_id"]),
+            "dbridge/listSchemas": lambda p: engine.list_schemas(p["session_id"], p.get("database")),
+            "dbridge/listTables": lambda p: engine.list_tables(p["session_id"], p.get("database"), p.get("schema")),
+            "dbridge/getTableSchema": lambda p: engine.get_table_schema(p["session_id"], p["fqn"]),
         }
 
     def handle(self, request: dict) -> dict | None:

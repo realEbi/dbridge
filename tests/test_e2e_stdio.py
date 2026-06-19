@@ -43,7 +43,19 @@ def test_e2e_connect_execute_disconnect():
         assert resp["result"]["rows"] == [[1, "a"]]
 
         resp = _request(proc, {
-            "jsonrpc": "2.0", "id": 5, "method": "dbridge/disconnect",
+            "jsonrpc": "2.0", "id": 5, "method": "dbridge/listTables",
+            "params": {"session_id": sid},
+        })
+        assert "t" in resp["result"]
+
+        resp = _request(proc, {
+            "jsonrpc": "2.0", "id": 6, "method": "dbridge/getTableSchema",
+            "params": {"session_id": sid, "fqn": "t"},
+        })
+        assert [c["name"] for c in resp["result"]["columns"]] == ["id", "name"]
+
+        resp = _request(proc, {
+            "jsonrpc": "2.0", "id": 7, "method": "dbridge/disconnect",
             "params": {"session_id": sid},
         })
         assert resp["result"]["ok"] is True
