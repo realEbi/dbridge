@@ -44,6 +44,15 @@ class Engine:
         self.sessions.get(session_id)
         return asdict(self._registries[session_id].get_table_schema(fqn))
 
+    def get_erd(self, session_id: str) -> dict:
+        tables = self._registries[session_id].list_tables()
+        return {"status": "not_implemented", "tables": tables}
+
+    def refresh_schema(self, session_id: str) -> dict:
+        self.sessions.get(session_id)
+        self._registries[session_id].refresh()
+        return {"ok": True}
+
     def complete(self, session_id: str, sql: str) -> list[dict]:
         session = self.sessions.get(session_id)
         registry = self._registries[session_id]
