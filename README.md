@@ -6,14 +6,17 @@
 
 ---
 
-A unified database management server that acts as a bridge between client applications and various database engines, providing a consistent interface for database operations and schema exploration.
-
-This project is a server application that tries to serve all the requriments for any UI applications similar to [dbeaver](https://dbeaver.io/) that can be as a UI database client.
+A unified database management server that bridges client applications to multiple
+database engines via a **stdio JSON-RPC 2.0** interface (LSP-style framing).
+Designed to back editor plugins and TUI clients like
+[dbridge.nvim](https://github.com/e3oroush/dbridge.nvim).
 
 ## Table of Contents
 
 - [Installation](#installation)
 - [Run the Server](#run-the-server)
+- [Connection Profiles](#connection-profiles)
+- [JSON-RPC Methods](#json-rpc-methods)
 - [Development](#development)
 - [License](#license)
 
@@ -23,19 +26,68 @@ This project is a server application that tries to serve all the requriments for
 pip install dbridge
 ```
 
-For optional database adapters:
+## Run the Server
+
+The server reads LSP-framed JSON-RPC messages from stdin and writes responses to
+stdout.
 
 ```console
-pip install dbridge[mysql]
-pip install dbridge[postgres]
-pip install dbridge[snowflake]
+python -m dbridge.server
 ```
 
-## Run the server
+With uv:
 
 ```console
-python -m dbridge.server.app
+uv run python -m dbridge.server
 ```
+
+## Connection Profiles
+
+Named connection profiles can be stored in
+`~/.config/dbridge/connections.toml` (Linux/macOS) or
+`%APPDATA%\dbridge\connections.toml` (Windows):
+
+```toml
+[connections.mydb]
+adapter = "sqlite"
+[connections.mydb.config]
+uri = "/path/to/database.db"
+
+[connections.analytics]
+adapter = "duckdb"
+[connections.analytics.config]
+uri = "/path/to/data.duckdb"
+```
+
+A missing file is not an error — profiles are data only and do not create live
+connections.
+
+## JSON-RPC Methods
+
+All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` header).
+
+| Method | Params | Description |
+|---|---|---|
+| `dbridge/connect` | `adapter`, `config` | Open a session → `{session_id}` |
+| `dbridge/disconnect` | `session_id` | Close a session → `{ok}` |
+| `dbridge/execute` | `session_id`, `sql` | Run SQL → `{columns, rows, row_count, …}` |
+| `dbridge/listDatabases` | `session_id` | List databases |
+| `dbridge/listSchemas` | `session_id`, `database?` | List schemas |
+| `dbridge/listTables` | `session_id`, `database?`, `schema?` | List tables |
+| `dbridge/getTableSchema` | `session_id`, `fqn` | Column/PK/FK info |
+| `dbridge/complete` | `session_id`, `sql` | SQL completion items |
+| `dbridge/getERD` | `session_id` | ERD placeholder |
+| `dbridge/refreshSchema` | `session_id` | Clear schema cache |
+
+**Supported adapters:** `sqlite`, `duckdb`
+
+**Environment variables** (prefix `dbridge_`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `dbridge_logging_level` | `INFO` | Log level |
+| `dbridge_max_rows` | `100` | Row cap per query |
+| `dbridge_cache_ttl_seconds` | `60` | Schema cache TTL |
 
 ## Development
 
@@ -48,7 +100,7 @@ uv sync
 Run the server:
 
 ```console
-uv run python -m dbridge.server.app
+uv run python -m dbridge.server
 ```
 
 Run tests:
@@ -63,35 +115,10 @@ Type checking:
 uv run --group types mypy src/dbridge tests
 ```
 
-## DB Connection
-
-A Database connection accepts a custom connection config which depending on the db driver, you are flexible to use any form of config.
-
-## Features
-
-- Supported DBs:
-  - sqlite
-  - duckdb
-  - mysql
-  - postgres
-  - snowflake
-- Get databases
-- Get Schemas
-- Get tables
-- Get columns
-- Run a sql file with multiple statements
-
-## TODOs
-
-- [x] Autocomplete and suggestion
-- [ ] Edit tables and schemas
-
 ## UIs
 
-Here is a list of UI clients that are using this server to provide a dbridge user interface.
-
-- [dbridge.nvim](https://github.com/e3oroush/dbridge.nvim) a neovim plugin
-- [dbridge.tui](https://github.com/e3oroush/dbridge.nvim) a terminal user interface developed with [Textual](https://textual.textualize.io/)
+- [dbridge.nvim](https://github.com/e3oroush/dbridge.nvim) — Neovim plugin
+- [dbridge.tui](https://github.com/e3oroush/dbridge.nvim) — Terminal UI built with [Textual](https://textual.textualize.io/)
 
 ## License
 

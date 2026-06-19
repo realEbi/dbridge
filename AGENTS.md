@@ -1,74 +1,100 @@
 # AGENTS.md
 
-dbridge is a FastAPI HTTP server that bridges UI database clients to multiple database engines via a unified REST API. Default port: **3695**. Entry point: `python -m dbridge.server.app`.
+dbridge is a **stdio JSON-RPC 2.0 server** (LSP-style framing) that bridges
+database clients to multiple database engines via a three-layer architecture:
+**Transport / Core Engine / Adapters**. Entry point: `python -m dbridge.server`.
 
 ## Directory Overview
 
 ```
 src/dbridge/
-├── config.py              # Global settings (pydantic-settings, env prefix dbridge_)
+├── server.py              # Entry point: wires StdioTransport → Dispatcher → Engine
+├── config/
+│   ├── settings.py        # Global settings (pydantic-settings, env prefix dbridge_)
+│   └── profiles.py        # Load connection profiles from connections.toml
 ├── adapters/
-│   ├── interfaces.py      # DBAdapter ABC — all adapters implement this
-│   ├── capabilities.py    # CapabilityEnums: USE_DB, USE_SCHEMA
-│   └── dbs/
-│       ├── models.py      # DbCatalog, SchemaCatalog, INSTALLED_ADAPTERS
-│       ├── sqllite.py     # SQLite (core)
-│       ├── duckdb.py      # DuckDB (core)
-│       ├── mysql.py       # MySQL (optional: pip install dbridge[mysql])
-│       ├── postgres.py    # PostgreSQL (optional: pip install dbridge[postgres])
-│       └── snowflake.py   # Snowflake (optional: pip install dbridge[snowflake])
-├── server/
-│   ├── __init__.py        # All FastAPI routes + module-level Connections() instance
-│   ├── app.py             # uvicorn.run entry point
-│   ├── config.py          # Connections manager, ConnectionParam/Config models, YAML persistence
-│   └── caching.py         # In-memory SHA-256 keyed TTL cache (default 120s)
-├── scripts/
-│   └── extract_table.py   # CLI: parses SQL → prints table name (used for autocomplete)
-└── logging/__init__.py    # get_logger() factory with module-level logger cache
+│   ├── base.py            # DBAdapter ABC, ColumnDef, TableSchema, QueryResult
+│   ├── registry.py        # INSTALLED_ADAPTERS + create_adapter()
+│   ├── sqlite.py          # SQLite adapter
+│   ├── duckdb.py          # DuckDB adapter (no pandas)
+│   └── _parked/           # mysql, postgres, snowflake (Phase 2)
+├── core/
+│   ├── engine.py          # Engine: top-level orchestrator (connect/execute/complete/…)
+│   ├── session.py         # SessionManager + Session
+│   ├── executor.py        # execute() with row-cap + truncation warnings
+│   ├── schema_registry.py # In-memory TTL cache for list_tables / get_table_schema
+│   └── completion.py      # Tier-1 SQL completion (FROM/JOIN → tables, SELECT/WHERE → columns)
+├── protocol/
+│   ├── handlers.py        # Dispatcher: JSON-RPC method → Engine call
+│   ├── messages.py        # make_response / make_error helpers
+│   ├── errors.py          # JSON-RPC error codes
+│   └── transport/
+│       └── stdio.py       # StdioTransport: LSP-framed stdin/stdout loop
+├── exceptions/            # AdapterError, AdapterConnectionError, AdapterQueryError
+└── logging/__init__.py    # get_logger() factory
 tests/
-├── adapters/              # sqlite_test.py, duckdb_test.py
-└── config_test.py, logging_test.py, server.py
+├── adapters/              # test_sqlite.py, test_duckdb.py
+├── config/                # test_profiles.py
+├── core/                  # test_completion.py, test_schema_registry.py, test_session.py
+├── protocol/              # test_handlers.py, test_framing.py
+└── test_e2e_stdio.py      # End-to-end subprocess tests
 ```
 
 ## Key Subsystems
 
-### Adapters
-- `DBAdapter` (ABC in `adapters/interfaces.py`) defines: `show_columns`, `get_all_columns`, `show_tables_schema_dbs`, `run_query`, `is_single_connection`, `get_capabilities`.
-- To add an adapter: implement `DBAdapter`, register in `server/config.py → create_adapter_connection()`, add optional dep to `pyproject.toml`.
-- `INSTALLED_ADAPTERS` in `adapters/dbs/models.py` controls what `/adapters` returns.
+### Transport (`protocol/transport/stdio.py`)
+- Reads LSP-framed messages from stdin (`Content-Length: N\r\n\r\n{json}`).
+- Passes each parsed dict to `Dispatcher.handle()`, writes the response back.
+- Runs synchronously in a `while True` loop; EOF exits cleanly.
 
-### Connection Management (`server/config.py`)
-- `Connections` holds an in-memory `dict[hash_uri → dict[name → DBAdapter]]`.
-- Connection ID format: `md5(adapter + str(connection_config)) + "--" + name` (deterministic).
-- On `get_connection`, falls back to loading from YAML if hash not in memory.
-- `is_single_connection() = True` (SQLite, DuckDB): all named connections sharing a hash reuse one adapter instance. `False` (MySQL, PostgreSQL, Snowflake): each name gets its own instance.
-- Connections are persisted to `~/.config/dbridge/connections_list.yml` (Linux/macOS) or `%APPDATA%\dbridge\connections_list.yml` (Windows).
+### Core Engine (`core/engine.py`)
+- `Engine` owns a `SessionManager` (live adapter instances) and a per-session `SchemaRegistry` (TTL cache).
+- All public methods map 1-to-1 to JSON-RPC methods in the Dispatcher.
+- `executor.execute()` enforces `max_rows` and appends a truncation warning when hit.
 
-### Caching (`server/caching.py`)
-- Applied to: `GET /get_columns`, `GET /get_all_columns`, `GET /query_table`, `GET /get_dbs_schemas_tables`.
-- Not applied to: `POST /run_query` (always live).
-- TTL: `dbridge_expiration_seconds` env var (default 120).
+### Adapters (`adapters/`)
+- `DBAdapter` ABC (`adapters/base.py`) defines: `connect`, `disconnect`, `execute`, `list_databases`, `list_schemas`, `list_tables`, `get_table_schema`, `dialect_name`, `get_keywords`.
+- To add an adapter: subclass `DBAdapter`, register in `adapters/registry.py`, add optional dep to `pyproject.toml`.
+- `INSTALLED_ADAPTERS` in `adapters/registry.py` lists currently registered adapters (`sqlite`, `duckdb`). mysql/postgres/snowflake are parked in `adapters/_parked/`.
 
-### REST API (all routes in `server/__init__.py`)
-| Route | Method | Description |
+### Schema Registry (`core/schema_registry.py`)
+- Per-session hot-only in-memory TTL cache (default 60 s).
+- Caches `list_tables()` and `get_table_schema(fqn)` results.
+- `refresh()` clears all cached entries (used by `dbridge/refreshSchema`).
+
+### Completion (`core/completion.py`)
+- `complete(sql, list_tables_fn, get_columns_fn, get_keywords_fn)` — regex dispatch:
+  - `FROM`/`JOIN` position → table names (kind: `table`)
+  - `SELECT`/`WHERE`/`AND`/`OR`/`ON` position → columns of in-scope tables (kind: `column`)
+  - otherwise → dialect keywords (kind: `keyword`)
+- Uses `sqlglot` to extract referenced tables from partial SQL; degrades gracefully on errors.
+
+### Connection Profiles (`config/profiles.py`)
+- Loads `~/.config/dbridge/connections.toml` (Linux/macOS) or `%APPDATA%\dbridge\connections.toml` (Windows).
+- Format: `[connections.<name>]` with `adapter` and optional `[connections.<name>.config]`.
+- Missing file returns `{}` — not an error. Profiles are data only; loading does not create a live adapter.
+
+### JSON-RPC Method Surface (`protocol/handlers.py`)
+| Method | Params | Description |
 |---|---|---|
-| `/adapters` | GET | List installed adapters |
-| `/connections` | GET | List persisted connections |
-| `/connections` | POST | Register connection → returns `{connection_id, name}` |
-| `/get_dbs_schemas_tables` | GET | Full catalog (db → schema → tables) |
-| `/get_columns` | GET | Columns for a table |
-| `/get_all_columns` | GET | All columns (autocomplete) |
-| `/query_table` | GET | `SELECT *` from table (cached) |
-| `/run_query` | POST | Arbitrary SQL (not cached) |
+| `dbridge/connect` | `adapter`, `config` | Create session → `{session_id}` |
+| `dbridge/disconnect` | `session_id` | Close session → `{ok}` |
+| `dbridge/execute` | `session_id`, `sql` | Run SQL → `QueryResult` |
+| `dbridge/listDatabases` | `session_id` | List databases |
+| `dbridge/listSchemas` | `session_id`, `database?` | List schemas |
+| `dbridge/listTables` | `session_id`, `database?`, `schema?` | List tables (cached) |
+| `dbridge/getTableSchema` | `session_id`, `fqn` | Column/PK/FK info (cached) |
+| `dbridge/complete` | `session_id`, `sql` | Tier-1 completion items |
+| `dbridge/getERD` | `session_id` | Placeholder → `{status, tables}` |
+| `dbridge/refreshSchema` | `session_id` | Clear schema cache → `{ok}` |
 
 ## Repo-Specific Patterns
 
 - **src layout**: package lives under `src/dbridge/`, not at root. Tests import `dbridge` directly.
-- **Optional adapter imports are unconditional**: `server/config.py` imports `MySqlAdapter`, `PostgresAdapter`, `SnowflakeAdapter` at module level. If optional deps are missing, the server fails to start even if only SQLite/DuckDB is needed.
-- **DuckDB uses pandas**: `run_query` returns `fetch_df_chunk(limit).to_dict("records")`. `get_all_columns` returns `"table_name.column_name"` formatted strings.
-- **SQLite `run_query` limit**: hardcoded `fetchmany(100)`.
-- **`query_table` builds SQL from capabilities**: adapters declare `USE_DB`/`USE_SCHEMA` to control whether `dbname.` or `schema_name.` is prepended.
-- **uv scripts**: run `uv run python -m dbridge.server.app` to start the server and `uv run python -m dbridge.scripts.extract_table` for the extract_table helper.
+- **Synchronous**: no asyncio; all adapters and the transport loop are sync (Phase 1 decision, see `docs/adr/0001-sync-core-for-phase-1.md`).
+- **DuckDB — no pandas**: `execute()` uses native `duckdb` fetch; introspection via `information_schema`.
+- **Row cap**: `executor.execute()` truncates to `max_rows` and appends a warning string to `QueryResult.warnings`.
+- **uv scripts**: `uv run python -m dbridge.server` to start; `uv run --group test pytest` for tests.
 
 ## CI / Release
 - Workflow: `.github/workflows/publish-pypi.yml`
@@ -81,21 +107,8 @@ tests/
 | Variable | Default | Description |
 |---|---|---|
 | `dbridge_logging_level` | `INFO` | Log level |
-| `dbridge_host` | `0.0.0.0` | Bind host |
-| `dbridge_port` | `3695` | HTTP port |
-| `dbridge_expiration_seconds` | `120` | Cache TTL |
-| `dbridge_no_cols_fetch` | `1000` | Max columns in DuckDB `get_all_columns` |
-
-## Detailed Documentation
-
-Full documentation is in `.agents/summary/`:
-- `index.md` — navigation guide and quick-reference facts
-- `architecture.md` — system diagrams and request lifecycle
-- `components.md` — per-component details
-- `interfaces.md` — full REST API reference
-- `data_models.md` — all Pydantic models
-- `workflows.md` — process flows and how to add an adapter
-- `dependencies.md` — all deps with versions and caveats
+| `dbridge_max_rows` | `100` | Row cap for `execute` (truncation warning added when hit) |
+| `dbridge_cache_ttl_seconds` | `60` | Schema registry TTL |
 
 ## Agent skills
 
