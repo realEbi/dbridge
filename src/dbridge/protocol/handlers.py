@@ -17,6 +17,7 @@ class Dispatcher:
             "dbridge/listSchemas": lambda p: engine.list_schemas(p["session_id"], p.get("database")),
             "dbridge/listTables": lambda p: engine.list_tables(p["session_id"], p.get("database"), p.get("schema")),
             "dbridge/getTableSchema": lambda p: engine.get_table_schema(p["session_id"], p["fqn"]),
+            "dbridge/complete": lambda p: engine.complete(p["session_id"], p["sql"]),
         }
 
     def handle(self, request: dict) -> dict | None:

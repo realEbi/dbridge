@@ -2,6 +2,7 @@ from dataclasses import asdict
 
 from dbridge.config.settings import settings
 from dbridge.core import executor
+from dbridge.core.completion import complete as _complete
 from dbridge.core.schema_registry import SchemaRegistry
 from dbridge.core.session import SessionManager
 
@@ -42,3 +43,13 @@ class Engine:
     def get_table_schema(self, session_id: str, fqn: str) -> dict:
         self.sessions.get(session_id)
         return asdict(self._registries[session_id].get_table_schema(fqn))
+
+    def complete(self, session_id: str, sql: str) -> list[dict]:
+        session = self.sessions.get(session_id)
+        registry = self._registries[session_id]
+        return _complete(
+            sql,
+            list_tables_fn=lambda: registry.list_tables(),
+            get_columns_fn=lambda t: [c.name for c in registry.get_table_schema(t).columns],
+            get_keywords_fn=session.adapter.get_keywords,
+        )

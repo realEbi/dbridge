@@ -64,6 +64,57 @@ def test_e2e_connect_execute_disconnect():
         proc.wait(timeout=5)
 
 
+def test_e2e_complete():
+    proc = _spawn()
+    try:
+        resp = _request(proc, {
+            "jsonrpc": "2.0", "id": 1, "method": "dbridge/connect",
+            "params": {"adapter": "sqlite", "config": {"uri": ":memory:"}},
+        })
+        sid = resp["result"]["session_id"]
+
+        _request(proc, {
+            "jsonrpc": "2.0", "id": 2, "method": "dbridge/execute",
+            "params": {"session_id": sid, "sql": "CREATE TABLE users (id INTEGER, name TEXT)"},
+        })
+        _request(proc, {
+            "jsonrpc": "2.0", "id": 3, "method": "dbridge/execute",
+            "params": {"session_id": sid, "sql": "CREATE TABLE orders (id INTEGER, user_id INTEGER)"},
+        })
+
+        # FROM context → table names
+        resp = _request(proc, {
+            "jsonrpc": "2.0", "id": 4, "method": "dbridge/complete",
+            "params": {"session_id": sid, "sql": "SELECT * FROM "},
+        })
+        items = resp["result"]
+        kinds = {i["kind"] for i in items}
+        labels = [i["label"] for i in items]
+        assert kinds == {"table"}
+        assert "users" in labels
+        assert "orders" in labels
+
+        # WHERE context → columns in scope
+        resp = _request(proc, {
+            "jsonrpc": "2.0", "id": 5, "method": "dbridge/complete",
+            "params": {"session_id": sid, "sql": "SELECT id FROM users WHERE "},
+        })
+        items = resp["result"]
+        assert any(i["kind"] == "column" for i in items)
+        assert any(i["label"] == "name" for i in items)
+
+        # Keyword fallback
+        resp = _request(proc, {
+            "jsonrpc": "2.0", "id": 6, "method": "dbridge/complete",
+            "params": {"session_id": sid, "sql": ""},
+        })
+        items = resp["result"]
+        assert any(i["kind"] == "keyword" for i in items)
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=5)
+
+
 def test_e2e_result_truncation():
     # Default max_rows is 100; a 150-row generated result must be capped and warned.
     proc = _spawn()
