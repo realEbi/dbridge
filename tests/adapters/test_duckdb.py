@@ -82,3 +82,38 @@ def test_keywords_non_empty(adapter):
     kws = adapter.get_keywords()
     assert "SELECT" in kws
     assert "FROM" in kws
+
+
+def test_list_schemas_is_scoped_to_the_catalog(tmp_path):
+    """duckdb attaches system/temp alongside the file; schemas must not merge."""
+    a = DuckDBAdapter({"uri": str(tmp_path / "scoped.duckdb")})
+    a.connect()
+    a.execute("CREATE TABLE t (id INTEGER)")
+
+    catalogs = a.list_databases()
+    assert "system" in catalogs
+
+    # the file's own catalog is the one holding the table
+    own = next(c for c in catalogs if c not in ("system", "temp"))
+    assert a.list_tables(own, "main") == ["t"]
+    # the same schema name under another catalog must not surface it
+    assert a.list_tables("system", "main") == []
+
+    for schema in a.list_schemas("system"):
+        assert schema in ("main", "information_schema", "pg_catalog")
+    a.disconnect()
+
+
+def test_get_table_schema_does_not_merge_same_named_tables(tmp_path):
+    a = DuckDBAdapter({"uri": str(tmp_path / "dup.duckdb")})
+    a.connect()
+    a.execute("CREATE SCHEMA other")
+    a.execute("CREATE TABLE main.t (a INTEGER, b INTEGER)")
+    a.execute("CREATE TABLE other.t (x INTEGER)")
+
+    main_cols = [c.name for c in a.get_table_schema("main.t").columns]
+    other_cols = [c.name for c in a.get_table_schema("other.t").columns]
+
+    assert main_cols == ["a", "b"]
+    assert other_cols == ["x"]
+    a.disconnect()

@@ -64,28 +64,62 @@ class DuckDBAdapter(DBAdapter):
         return [r[0] for r in rel.fetchall()]
 
     def list_schemas(self, database: str | None = None) -> list[str]:
-        rel = self._cur().execute(
-            "SELECT DISTINCT schema_name FROM information_schema.schemata"
-        )
+        # Scope to the catalog when given: duckdb attaches several (system,
+        # temp, the file itself), and an unscoped query returns their schemas
+        # mixed together.
+        if database is None:
+            rel = self._cur().execute(
+                "SELECT DISTINCT schema_name FROM information_schema.schemata"
+            )
+        else:
+            rel = self._cur().execute(
+                "SELECT DISTINCT schema_name FROM information_schema.schemata "
+                "WHERE catalog_name=?",
+                [database],
+            )
         return [r[0] for r in rel.fetchall()]
 
     def list_tables(
         self, database: str | None = None, schema: str | None = None
     ) -> list[str]:
         schema = schema or "main"
-        rel = self._cur().execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema=?",
-            [schema],
-        )
+        if database is None:
+            rel = self._cur().execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema=?",
+                [schema],
+            )
+        else:
+            rel = self._cur().execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema=? AND table_catalog=?",
+                [schema, database],
+            )
         return [r[0] for r in rel.fetchall()]
 
     def get_table_schema(self, fqn: str) -> TableSchema:
-        table = fqn.split(".")[-1]
+        # fqn may be "table", "schema.table", or "catalog.schema.table". Filter
+        # on whatever was supplied: matching on table_name alone would merge the
+        # columns of same-named tables in different schemas.
+        parts = fqn.split(".")
+        table = parts[-1]
+        schema = parts[-2] if len(parts) >= 2 else None
+        catalog = parts[-3] if len(parts) >= 3 else None
+
+        where = ["table_name=?"]
+        params: list[str] = [table]
+        if schema is not None:
+            where.append("table_schema=?")
+            params.append(schema)
+        if catalog is not None:
+            where.append("table_catalog=?")
+            params.append(catalog)
+
         rel = self._cur().execute(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "
-            "WHERE table_name=? ORDER BY ordinal_position",
-            [table],
+            f"WHERE {' AND '.join(where)} ORDER BY ordinal_position",  # noqa: S608
+            params,
         )
         columns = [
             ColumnDef(
@@ -96,7 +130,7 @@ class DuckDBAdapter(DBAdapter):
             for name, dtype, nullable in rel.fetchall()
         ]
         return TableSchema(
-            name=table, schema="main", database=None,
+            name=table, schema=schema or "main", database=catalog,
             columns=columns, primary_keys=[], foreign_keys=[],
         )
 
