@@ -1,6 +1,6 @@
 # dbridge
 
-[![actions status](https://img.shields.io/github/actions/workflow/status/e3oroush/dbridge/publish-pypi.yml?logo=github&style=)](https://github.com/e3oroush/dbridge/actions)
+[![actions status](https://img.shields.io/github/actions/workflow/status/realebi/dbridge/publish-pypi.yml?logo=github&style=)](https://github.com/realebi/dbridge/actions)
 [![PyPI - Version](https://img.shields.io/pypi/v/dbridge.svg)](https://pypi.org/project/dbridge)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/dbridge.svg)](https://pypi.org/project/dbridge)
 
@@ -9,7 +9,7 @@
 A unified database management server that bridges client applications to multiple
 database engines via a **stdio JSON-RPC 2.0** interface (LSP-style framing).
 Designed to back editor plugins and TUI clients like
-[dbridge.nvim](https://github.com/e3oroush/dbridge.nvim).
+[dbridge.nvim](https://github.com/realebi/dbridge.nvim).
 
 ## Table of Contents
 
@@ -122,8 +122,8 @@ uv run --group types mypy src/dbridge tests
 
 ## UIs
 
-- [dbridge.nvim](https://github.com/e3oroush/dbridge.nvim) — Neovim plugin
-- [dbridge.tui](https://github.com/e3oroush/dbridge.nvim) — Terminal UI built with [Textual](https://textual.textualize.io/)
+- [dbridge.nvim](https://github.com/realebi/dbridge.nvim) — Neovim plugin
+- [dbridge.tui](https://github.com/realebi/dbridge.tui) — Terminal UI built with [Textual](https://textual.textualize.io/)
 
 ## License
 
