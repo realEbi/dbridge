@@ -47,11 +47,19 @@ def load_profiles(path: Path | None = None) -> dict[str, dict]:
     if path is None:
         path = _profiles_path()
     connections = _read_raw(path).get("connections", {})
-    return {
-        name: {"adapter": entry["adapter"], "config": entry.get("config", {})}
-        for name, entry in connections.items()
-        if "adapter" in entry
-    }
+    profiles = {}
+    for name, entry in connections.items():
+        if "adapter" not in entry:
+            continue
+        config = entry.get("config", {})
+        # A hand-edited or legacy file can carry a non-table config — an early
+        # client wrote `config = []` for an empty config, because Lua encodes an
+        # empty table as a JSON array. Normalize rather than hand a list to an
+        # adapter that expects a mapping.
+        if not isinstance(config, dict):
+            config = {}
+        profiles[name] = {"adapter": entry["adapter"], "config": config}
+    return profiles
 
 
 def save_profile(name: str, adapter: str, config: dict, path: Path | None = None) -> None:

@@ -172,3 +172,14 @@ def test_get_profile_raises_when_missing(tmp_path):
     save_profile("a", "sqlite", {}, path=toml)
     with pytest.raises(ProfileNotFoundError):
         get_profile("nope", path=toml)
+
+
+def test_non_table_config_is_normalized(tmp_path):
+    """An early client wrote `config = []`; it must not reach the adapter."""
+    toml = tmp_path / "connections.toml"
+    toml.write_text(textwrap.dedent("""\
+        [connections.legacy]
+        adapter = "sqlite"
+        config = []
+    """))
+    assert load_profiles(toml) == {"legacy": {"adapter": "sqlite", "config": {}}}

@@ -171,3 +171,7 @@ cython_debug/
 .pypirc
 
 .codenotes
+
+# Generated fixture; rebuild with scripts/make_sample_db.py
+examples/sample.db
+examples/sample.duckdb
