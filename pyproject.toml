@@ -38,9 +38,9 @@ postgres = ["psycopg2"]
 snowflake = ["snowflake-connector-python"]
 
 [project.urls]
-Documentation = "https://github.com/e3oroush/dbridge#readme"
-Issues = "https://github.com/e3oroush/dbridge/issues"
-Source = "https://github.com/e3oroush/dbridge"
+Documentation = "https://github.com/realebi/dbridge#readme"
+Issues = "https://github.com/realebi/dbridge/issues"
+Source = "https://github.com/realebi/dbridge"
 
 [dependency-groups]
 dev = ["ruff", "black", "isort", "pyright", "pytest", "ipython"]
