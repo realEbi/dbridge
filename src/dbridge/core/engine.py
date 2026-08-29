@@ -1,11 +1,12 @@
 from dataclasses import asdict
 
-from dbridge.config.profiles import delete_profile, load_profiles, save_profile
+from dbridge.config.profiles import delete_profile, get_profile, load_profiles, save_profile
 from dbridge.config.settings import settings
 from dbridge.core import executor
 from dbridge.core.completion import complete as _complete
 from dbridge.core.schema_registry import SchemaRegistry
 from dbridge.core.session import SessionManager
+from dbridge.exceptions import InvalidRequestError
 
 
 class Engine:
@@ -13,8 +14,19 @@ class Engine:
         self.sessions = SessionManager()
         self._registries: dict[str, SchemaRegistry] = {}
 
-    def connect(self, adapter_name: str, config: dict) -> dict:
-        session = self.sessions.create(adapter_name, config)
+    def connect(
+        self,
+        adapter_name: str | None = None,
+        config: dict | None = None,
+        profile: str | None = None,
+    ) -> dict:
+        """Open a session either from a saved profile name or an inline adapter+config."""
+        if profile is not None:
+            entry = get_profile(profile)
+            adapter_name, config = entry["adapter"], entry["config"]
+        if adapter_name is None:
+            raise InvalidRequestError("connect requires either 'profile' or 'adapter'")
+        session = self.sessions.create(adapter_name, config or {})
         self._registries[session.id] = SchemaRegistry(
             session.adapter, ttl_seconds=settings.cache_ttl_seconds
         )
@@ -46,6 +58,7 @@ class Engine:
         return asdict(self._registries[session_id].get_table_schema(fqn))
 
     def get_erd(self, session_id: str) -> dict:
+        self.sessions.get(session_id)
         tables = self._registries[session_id].list_tables()
         return {"status": "not_implemented", "tables": tables}
 

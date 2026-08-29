@@ -60,7 +60,9 @@ uri = "/path/to/data.duckdb"
 ```
 
 A missing file is not an error — profiles are data only and do not create live
-connections.
+connections. The server owns this file: clients should manage profiles through
+`dbridge/listProfiles` / `dbridge/saveProfile` / `dbridge/deleteProfile` rather
+than editing the TOML themselves.
 
 ## JSON-RPC Methods
 
@@ -68,7 +70,7 @@ All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` header).
 
 | Method | Params | Description |
 |---|---|---|
-| `dbridge/connect` | `adapter`, `config` | Open a session → `{session_id}` |
+| `dbridge/connect` | `profile` **or** `adapter` + `config` | Open a session → `{session_id}` |
 | `dbridge/disconnect` | `session_id` | Close a session → `{ok}` |
 | `dbridge/execute` | `session_id`, `sql` | Run SQL → `{columns, rows, row_count, …}` |
 | `dbridge/listDatabases` | `session_id` | List databases |
@@ -78,6 +80,9 @@ All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` header).
 | `dbridge/complete` | `session_id`, `sql` | SQL completion items |
 | `dbridge/getERD` | `session_id` | ERD placeholder |
 | `dbridge/refreshSchema` | `session_id` | Clear schema cache |
+| `dbridge/listProfiles` | — | Saved profiles → `{name: {adapter, config}}` |
+| `dbridge/saveProfile` | `name`, `adapter`, `config?` | Upsert a profile → `{ok}` |
+| `dbridge/deleteProfile` | `name` | Remove a profile → `{ok}` (false if absent) |
 
 **Supported adapters:** `sqlite`, `duckdb`
 

@@ -8,13 +8,9 @@ dbridge is a protocol-driven backend that bridges database engines to developer 
 The database-engine-specific implementation behind a single interface. The core engine never talks to a driver directly — only through an Adapter (e.g. the DuckDB adapter, the Postgres adapter).
 _Avoid_: driver, connector, backend
 
-**Connection** (a.k.a. Connection Profile):
-A saved, named configuration describing *how* to reach a database (adapter name + config). It is data, persisted to a profiles file. It is not a live object.
-_Avoid_: profile-as-something-else, datasource
-
 **Session**:
-A live, server-side binding of one Connection to one instantiated Adapter, identified by a `session_id`. Carries the active database/schema. Created fresh by `dbridge/connect`; not persisted.
-_Avoid_: connection (when meaning the live object), context
+A live, server-side binding of one Profile to one instantiated Adapter, identified by a `session_id`. Carries the active database/schema. Created fresh by `dbridge/connect`; not persisted.
+_Avoid_: connection (ambiguous — say Profile for the config, Session for the live object)
 
 **Transport**:
 The layer that moves JSON-RPC messages between a client and the core engine over a specific channel (Phase 1: stdio). The core engine is transport-agnostic.
@@ -24,9 +20,11 @@ _Avoid_: protocol (the protocol is JSON-RPC/DSP; the transport is the channel)
 The transport-agnostic business-logic layer sitting between Transport and Adapters: session management, query dispatch, schema registry, completion. Owns no driver code.
 _Avoid_: backend, service
 
-**Profile** (a.k.a. Connection Profile):
-A named, persisted configuration entry in `~/.config/dbridge/connections.toml` describing how to reach a database (adapter + config dict). Managed by the server via `dbridge/listProfiles`, `dbridge/saveProfile`, `dbridge/deleteProfile`. The client treats profiles as data — it never reads or writes the TOML file directly.
-_Avoid_: connection (when meaning the saved config), datasource
+**Profile**:
+A named, persisted configuration describing *how* to reach a database (adapter name + config dict). It is data, never a live object. Persisted to `~/.config/dbridge/connections.toml` and owned by the server: clients read and write profiles through `dbridge/listProfiles`, `dbridge/saveProfile`, and `dbridge/deleteProfile`, never by touching the TOML file. `dbridge/connect` accepts either a profile name or an inline adapter + config.
+_Avoid_: connection, connection profile, datasource
+
+> The TOML sections are spelled `[connections.<name>]` for historical reasons. In prose, code, and protocol methods the term is **Profile**.
 
 **Neovim Client**:
 The Lua plugin (`dbridge.nvim`) that spawns the dbridge server as a stdio child process and communicates with it over JSON-RPC 2.0 with LSP framing. Lives in a separate repo. Owns no database logic.

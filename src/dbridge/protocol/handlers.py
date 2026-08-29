@@ -1,6 +1,12 @@
+from dbridge.config.profiles import ProfileNotFoundError
 from dbridge.core.engine import Engine
 from dbridge.core.session import SessionNotFoundError
-from dbridge.exceptions import AdapterConnectionError, AdapterError, AdapterQueryError
+from dbridge.exceptions import (
+    AdapterConnectionError,
+    AdapterError,
+    AdapterQueryError,
+    InvalidRequestError,
+)
 from dbridge.protocol import errors
 from dbridge.protocol.messages import JsonRpcRequest, make_error, make_response
 
@@ -10,18 +16,26 @@ class Dispatcher:
         self.engine = engine
         # Method surface grows as later slices add introspection/completion/erd.
         self._methods = {
-            "dbridge/connect": lambda p: engine.connect(p["adapter"], p.get("config", {})),
+            "dbridge/connect": lambda p: engine.connect(
+                p.get("adapter"), p.get("config", {}), p.get("profile")
+            ),
             "dbridge/disconnect": lambda p: engine.disconnect(p["session_id"]),
             "dbridge/execute": lambda p: engine.execute(p["session_id"], p["sql"]),
             "dbridge/listDatabases": lambda p: engine.list_databases(p["session_id"]),
-            "dbridge/listSchemas": lambda p: engine.list_schemas(p["session_id"], p.get("database")),
-            "dbridge/listTables": lambda p: engine.list_tables(p["session_id"], p.get("database"), p.get("schema")),
+            "dbridge/listSchemas": lambda p: engine.list_schemas(
+                p["session_id"], p.get("database")
+            ),
+            "dbridge/listTables": lambda p: engine.list_tables(
+                p["session_id"], p.get("database"), p.get("schema")
+            ),
             "dbridge/getTableSchema": lambda p: engine.get_table_schema(p["session_id"], p["fqn"]),
             "dbridge/complete": lambda p: engine.complete(p["session_id"], p["sql"]),
             "dbridge/getERD": lambda p: engine.get_erd(p["session_id"]),
             "dbridge/refreshSchema": lambda p: engine.refresh_schema(p["session_id"]),
             "dbridge/listProfiles": lambda p: engine.list_profiles(),
-            "dbridge/saveProfile": lambda p: engine.save_profile(p["name"], p["adapter"], p.get("config", {})),
+            "dbridge/saveProfile": lambda p: engine.save_profile(
+                p["name"], p["adapter"], p.get("config", {})
+            ),
             "dbridge/deleteProfile": lambda p: engine.delete_profile(p["name"]),
         }
 
@@ -40,6 +54,10 @@ class Dispatcher:
 
         try:
             return make_response(req.id, fn(req.params))
+        except ProfileNotFoundError as e:
+            return make_error(req.id, errors.PROFILE_NOT_FOUND, f"unknown profile: {e}")
+        except InvalidRequestError as e:
+            return make_error(req.id, errors.INVALID_REQUEST, str(e))
         except SessionNotFoundError as e:
             return make_error(req.id, errors.SESSION_NOT_FOUND, str(e))
         except AdapterConnectionError as e:

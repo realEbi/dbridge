@@ -14,8 +14,13 @@ from __future__ import annotations
 import os
 import sys
 import tomllib
-import tomli_w
 from pathlib import Path
+
+import tomli_w
+
+
+class ProfileNotFoundError(Exception):
+    """Raised when a named profile is not present in connections.toml."""
 
 
 def _config_dir() -> Path:
@@ -71,3 +76,11 @@ def delete_profile(name: str, path: Path | None = None) -> bool:
     data["connections"] = connections
     path.write_bytes(tomli_w.dumps(data).encode())
     return True
+
+
+def get_profile(name: str, path: Path | None = None) -> dict:
+    """Return a single profile by name, or raise ProfileNotFoundError."""
+    profiles = load_profiles(path)
+    if name not in profiles:
+        raise ProfileNotFoundError(name)
+    return profiles[name]

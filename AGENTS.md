@@ -11,7 +11,7 @@ src/dbridge/
 ├── server.py              # Entry point: wires StdioTransport → Dispatcher → Engine
 ├── config/
 │   ├── settings.py        # Global settings (pydantic-settings, env prefix dbridge_)
-│   └── profiles.py        # Load connection profiles from connections.toml
+│   └── profiles.py        # Read/write connection profiles in connections.toml
 ├── adapters/
 │   ├── base.py            # DBAdapter ABC, ColumnDef, TableSchema, QueryResult
 │   ├── registry.py        # INSTALLED_ADAPTERS + create_adapter()
@@ -69,15 +69,17 @@ tests/
   - otherwise → dialect keywords (kind: `keyword`)
 - Uses `sqlglot` to extract referenced tables from partial SQL; degrades gracefully on errors.
 
-### Connection Profiles (`config/profiles.py`)
-- Loads `~/.config/dbridge/connections.toml` (Linux/macOS) or `%APPDATA%\dbridge\connections.toml` (Windows).
+### Profiles (`config/profiles.py`)
+- Reads/writes `~/.config/dbridge/connections.toml` (Linux/macOS) or `%APPDATA%\dbridge\connections.toml` (Windows).
 - Format: `[connections.<name>]` with `adapter` and optional `[connections.<name>.config]`.
 - Missing file returns `{}` — not an error. Profiles are data only; loading does not create a live adapter.
+- `save_profile`/`delete_profile` upsert and remove entries via `tomli-w`; `get_profile` raises `ProfileNotFoundError`.
+- The server owns the file — clients go through the `dbridge/*Profile*` methods, never the TOML.
 
 ### JSON-RPC Method Surface (`protocol/handlers.py`)
 | Method | Params | Description |
 |---|---|---|
-| `dbridge/connect` | `adapter`, `config` | Create session → `{session_id}` |
+| `dbridge/connect` | `profile` **or** `adapter` + `config` | Create session → `{session_id}` |
 | `dbridge/disconnect` | `session_id` | Close session → `{ok}` |
 | `dbridge/execute` | `session_id`, `sql` | Run SQL → `QueryResult` |
 | `dbridge/listDatabases` | `session_id` | List databases |
@@ -87,6 +89,9 @@ tests/
 | `dbridge/complete` | `session_id`, `sql` | Tier-1 completion items |
 | `dbridge/getERD` | `session_id` | Placeholder → `{status, tables}` |
 | `dbridge/refreshSchema` | `session_id` | Clear schema cache → `{ok}` |
+| `dbridge/listProfiles` | — | Saved profiles → `{name: {adapter, config}}` |
+| `dbridge/saveProfile` | `name`, `adapter`, `config?` | Upsert a profile → `{ok}` |
+| `dbridge/deleteProfile` | `name` | Remove a profile → `{ok}` (false if absent) |
 
 ## Repo-Specific Patterns
 

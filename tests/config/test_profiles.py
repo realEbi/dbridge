@@ -1,10 +1,15 @@
 """Unit tests for config/profiles.py and the getERD / refreshSchema handlers."""
 import textwrap
-from pathlib import Path
 
 import pytest
 
-from dbridge.config.profiles import load_profiles
+from dbridge.config.profiles import (
+    ProfileNotFoundError,
+    delete_profile,
+    get_profile,
+    load_profiles,
+    save_profile,
+)
 
 
 # ── profiles loader ───────────────────────────────────────────────────────────
@@ -114,3 +119,56 @@ def test_refresh_schema_clears_cache(_dispatcher):
     engine.refresh_schema(sid)
     tables = engine.list_tables(sid)
     assert "after" in tables
+
+
+# ── profile writes ────────────────────────────────────────────────────────────
+
+def test_save_profile_creates_file_and_roundtrips(tmp_path):
+    toml = tmp_path / "nested" / "connections.toml"
+    save_profile("mydb", "sqlite", {"uri": "/tmp/x.db"}, path=toml)
+    assert load_profiles(toml) == {"mydb": {"adapter": "sqlite", "config": {"uri": "/tmp/x.db"}}}
+
+
+def test_save_profile_upserts_without_clobbering_siblings(tmp_path):
+    toml = tmp_path / "connections.toml"
+    save_profile("a", "sqlite", {"uri": "/a.db"}, path=toml)
+    save_profile("b", "duckdb", {"uri": ":memory:"}, path=toml)
+    save_profile("a", "duckdb", {"uri": "/a2.db"}, path=toml)
+
+    profiles = load_profiles(toml)
+    assert set(profiles) == {"a", "b"}
+    assert profiles["a"] == {"adapter": "duckdb", "config": {"uri": "/a2.db"}}
+    assert profiles["b"]["adapter"] == "duckdb"
+
+
+def test_delete_profile_removes_only_the_named_entry(tmp_path):
+    toml = tmp_path / "connections.toml"
+    save_profile("a", "sqlite", {}, path=toml)
+    save_profile("b", "duckdb", {}, path=toml)
+
+    assert delete_profile("a", path=toml) is True
+    assert set(load_profiles(toml)) == {"b"}
+
+
+def test_delete_missing_profile_returns_false(tmp_path):
+    toml = tmp_path / "connections.toml"
+    save_profile("a", "sqlite", {}, path=toml)
+    assert delete_profile("nope", path=toml) is False
+    assert set(load_profiles(toml)) == {"a"}
+
+
+def test_delete_on_absent_file_returns_false(tmp_path):
+    assert delete_profile("a", path=tmp_path / "nonexistent.toml") is False
+
+
+def test_get_profile_returns_entry(tmp_path):
+    toml = tmp_path / "connections.toml"
+    save_profile("a", "sqlite", {"uri": "/a.db"}, path=toml)
+    assert get_profile("a", path=toml)["adapter"] == "sqlite"
+
+
+def test_get_profile_raises_when_missing(tmp_path):
+    toml = tmp_path / "connections.toml"
+    save_profile("a", "sqlite", {}, path=toml)
+    with pytest.raises(ProfileNotFoundError):
+        get_profile("nope", path=toml)
