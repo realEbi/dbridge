@@ -28,7 +28,7 @@ names the repo it touches.
   (ADR-0001 stands). No new adapters. ERD stays a placeholder.
 - Deferred features from `dbridge.nvim/TODO.md` (saved queries) stay deferred.
 
-## The four defects
+## The defects
 
 1. `dbridge/complete` has no cursor position, so SELECT-position column
    completion is structurally impossible. `tests/core/test_completion.py:46`
@@ -42,7 +42,13 @@ names the repo it touches.
 4. `results.lua` ignores `QueryResult.warnings`, so a result silently capped at
    `max_rows` looks complete.
 
-All four were reproduced live against the real server before this PRD was written.
+5. **Closing any panel hangs Neovim.** `init.lua`'s `BufUnload` handler calls
+   `open()`, which mounts new panels and registers new `BufUnload` handlers, so
+   teardown re-enters forever. `:q` in a panel, and `:qa!` with the layout open,
+   both hang. Found while verifying issue 01; see issue 06.
+
+Defects 1-4 were reproduced live against the real server before this PRD was
+written; defect 5 was found while verifying issue 01's acceptance criteria.
 
 ## Acceptance
 

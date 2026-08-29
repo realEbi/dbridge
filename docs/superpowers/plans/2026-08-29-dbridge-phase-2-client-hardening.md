@@ -71,6 +71,7 @@ inferred from reading code:
 | `cursor_before_line` | `"SELECT "` gives 0 items; `"SELECT \nFROM users"` gives 1 |
 | Column order | server `{id,name,email}` rendered as `{name,id,email}` |
 | Silent truncation | 250 rows inserted, `row_count=100`, `warnings=["result truncated to 100 rows"]`, panel shows none of it |
+| Panel close hangs | deleting one panel buffer never returns; `:qa!` with the layout open also hangs |
 
 The completion defect also invalidates a Phase 1 acceptance criterion: issue 04
 required "completion at a SELECT/WHERE position returns columns of tables in
@@ -89,6 +90,7 @@ grabbable and carries its own acceptance criteria:
 - [ ] `03-cursor-aware-completion.md` — optional `position` on `dbridge/complete`
 - [ ] `04-client-sends-cursor.md` — send buffer + byte offset from `cmp.lua`
 - [ ] `05-results-panel-correctness.md` — column order + truncation warnings
+- [ ] `06-panel-close-hangs-neovim.md` — BufUnload re-entry hangs the editor
 
 ## Out of scope
 
