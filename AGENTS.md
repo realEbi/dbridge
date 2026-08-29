@@ -86,7 +86,7 @@ tests/
 | `dbridge/listSchemas` | `session_id`, `database?` | List schemas |
 | `dbridge/listTables` | `session_id`, `database?`, `schema?` | List tables (cached) |
 | `dbridge/getTableSchema` | `session_id`, `fqn` | Column/PK/FK info (cached) |
-| `dbridge/complete` | `session_id`, `sql` | Tier-1 completion items |
+| `dbridge/complete` | `session_id`, `sql`, `position?` | Tier-1 completion items; `position` = cursor byte offset into `sql` (default: end) |
 | `dbridge/getERD` | `session_id` | Placeholder → `{status, tables}` |
 | `dbridge/refreshSchema` | `session_id` | Clear schema cache → `{ok}` |
 | `dbridge/listProfiles` | — | Saved profiles → `{name: {adapter, config}}` |

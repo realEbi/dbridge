@@ -29,7 +29,9 @@ class Dispatcher:
                 p["session_id"], p.get("database"), p.get("schema")
             ),
             "dbridge/getTableSchema": lambda p: engine.get_table_schema(p["session_id"], p["fqn"]),
-            "dbridge/complete": lambda p: engine.complete(p["session_id"], p["sql"]),
+            "dbridge/complete": lambda p: engine.complete(
+                p["session_id"], p["sql"], p.get("position")
+            ),
             "dbridge/getERD": lambda p: engine.get_erd(p["session_id"]),
             "dbridge/refreshSchema": lambda p: engine.refresh_schema(p["session_id"]),
             "dbridge/listProfiles": lambda p: engine.list_profiles(),

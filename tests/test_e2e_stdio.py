@@ -94,6 +94,15 @@ def test_e2e_complete():
         assert "users" in labels
         assert "orders" in labels
 
+        # SELECT position (cursor before FROM) → columns of tables in scope
+        resp = _request(proc, {
+            "jsonrpc": "2.0", "id": 7, "method": "dbridge/complete",
+            "params": {"session_id": sid, "sql": "SELECT  FROM users", "position": 7},
+        })
+        items = resp["result"]
+        assert {i["kind"] for i in items} == {"column"}
+        assert [i["label"] for i in items] == ["id", "name"]
+
         # WHERE context → columns in scope
         resp = _request(proc, {
             "jsonrpc": "2.0", "id": 5, "method": "dbridge/complete",

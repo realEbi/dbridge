@@ -77,7 +77,7 @@ All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` header).
 | `dbridge/listSchemas` | `session_id`, `database?` | List schemas |
 | `dbridge/listTables` | `session_id`, `database?`, `schema?` | List tables |
 | `dbridge/getTableSchema` | `session_id`, `fqn` | Column/PK/FK info |
-| `dbridge/complete` | `session_id`, `sql` | SQL completion items |
+| `dbridge/complete` | `session_id`, `sql`, `position?` | SQL completion items; `position` is the cursor's byte offset into `sql` (default: end) |
 | `dbridge/getERD` | `session_id` | ERD placeholder |
 | `dbridge/refreshSchema` | `session_id` | Clear schema cache |
 | `dbridge/listProfiles` | — | Saved profiles → `{name: {adapter, config}}` |

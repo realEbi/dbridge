@@ -67,7 +67,7 @@ class Engine:
         self._registries[session_id].refresh()
         return {"ok": True}
 
-    def complete(self, session_id: str, sql: str) -> list[dict]:
+    def complete(self, session_id: str, sql: str, position: int | None = None) -> list[dict]:
         session = self.sessions.get(session_id)
         registry = self._registries[session_id]
         return _complete(
@@ -75,6 +75,7 @@ class Engine:
             list_tables_fn=lambda: registry.list_tables(),
             get_columns_fn=lambda t: [c.name for c in registry.get_table_schema(t).columns],
             get_keywords_fn=session.adapter.get_keywords,
+            position=position,
         )
 
     def list_profiles(self) -> dict:

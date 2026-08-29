@@ -41,6 +41,26 @@ class CompletionItem:
         }
 
 
+def _prefix_at(sql: str, position: int | None) -> str:
+    """
+    Return the text of *sql* that precedes the cursor.
+
+    *position* is a byte offset into the UTF-8 encoding of *sql* (that is what
+    editors such as Neovim report). ``None`` means end-of-string. Out-of-range
+    and negative offsets are clamped so completion can never raise here.
+    """
+    if position is None:
+        return sql
+    try:
+        offset = int(position)
+    except (TypeError, ValueError):
+        return sql
+    encoded = sql.encode("utf-8")
+    offset = max(0, min(offset, len(encoded)))
+    # errors="ignore" drops a partial code point when the offset splits one.
+    return encoded[:offset].decode("utf-8", errors="ignore")
+
+
 def _extract_tables_from_sql(sql: str) -> list[str]:
     """Return table names referenced in FROM/JOIN clauses using sqlglot."""
     try:
@@ -59,6 +79,7 @@ def complete(
     list_tables_fn,          # () -> list[str]
     get_columns_fn,          # (table: str) -> list[str]
     get_keywords_fn,         # () -> list[str]
+    position: int | None = None,
 ) -> list[dict]:
     """
     Return completion items for *sql* (which may be partial/invalid).
@@ -66,19 +87,24 @@ def complete(
     - FROM/JOIN position  → table names
     - SELECT/WHERE position → column names of tables already in scope
     - otherwise           → dialect keywords
+
+    *position* is an optional byte offset of the cursor into *sql*; ``None``
+    means end-of-string. The context is classified from the text *before* the
+    cursor, while the **full** statement is parsed for tables in scope — that is
+    what lets ``SELECT ␣ FROM users`` offer ``users``' columns.
     """
-    sql_stripped = sql.rstrip()
+    prefix = _prefix_at(sql, position).rstrip()
 
     try:
-        if _FROM_JOIN_RE.search(sql_stripped):
+        if _FROM_JOIN_RE.search(prefix):
             tables = list_tables_fn()
             return [
                 CompletionItem(label=t, kind="table", detail="table").to_dict()
                 for t in tables
             ]
 
-        if _SELECT_WHERE_RE.search(sql_stripped):
-            in_scope = _extract_tables_from_sql(sql_stripped)
+        if _SELECT_WHERE_RE.search(prefix):
+            in_scope = _extract_tables_from_sql(sql.rstrip())
             columns: list[CompletionItem] = []
             for table in in_scope:
                 try:
