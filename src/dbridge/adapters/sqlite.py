@@ -31,7 +31,12 @@ class SqliteAdapter(DBAdapter):
 
     def connect(self) -> None:
         try:
-            self.con = sqlite3.connect(self.uri)
+            # isolation_level=None puts the driver in autocommit mode. Without it
+            # sqlite3 opens an implicit transaction before every INSERT/UPDATE/
+            # DELETE, and disconnect() closing the connection rolls those writes
+            # back. Phase 1 exposes no transaction control (ADR-0001), so there
+            # is nothing that would ever issue the commit.
+            self.con = sqlite3.connect(self.uri, isolation_level=None)
         except sqlite3.Error as e:
             raise AdapterConnectionError(str(e)) from e
 
