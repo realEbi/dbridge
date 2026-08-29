@@ -26,6 +26,7 @@ dependencies = [
   "sqlglot>=25.0.0",
   "numpy==2.2.1",
   "pandas==2.2.3",
+  "tomli-w>=1.0.0",
 ]
 
 [project.scripts]

@@ -1,5 +1,6 @@
 from dataclasses import asdict
 
+from dbridge.config.profiles import delete_profile, load_profiles, save_profile
 from dbridge.config.settings import settings
 from dbridge.core import executor
 from dbridge.core.completion import complete as _complete
@@ -62,3 +63,14 @@ class Engine:
             get_columns_fn=lambda t: [c.name for c in registry.get_table_schema(t).columns],
             get_keywords_fn=session.adapter.get_keywords,
         )
+
+    def list_profiles(self) -> dict:
+        return load_profiles()
+
+    def save_profile(self, name: str, adapter: str, config: dict) -> dict:
+        save_profile(name, adapter, config)
+        return {"ok": True}
+
+    def delete_profile(self, name: str) -> dict:
+        existed = delete_profile(name)
+        return {"ok": existed}

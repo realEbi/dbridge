@@ -20,6 +20,9 @@ class Dispatcher:
             "dbridge/complete": lambda p: engine.complete(p["session_id"], p["sql"]),
             "dbridge/getERD": lambda p: engine.get_erd(p["session_id"]),
             "dbridge/refreshSchema": lambda p: engine.refresh_schema(p["session_id"]),
+            "dbridge/listProfiles": lambda p: engine.list_profiles(),
+            "dbridge/saveProfile": lambda p: engine.save_profile(p["name"], p["adapter"], p.get("config", {})),
+            "dbridge/deleteProfile": lambda p: engine.delete_profile(p["name"]),
         }
 
     def handle(self, request: dict) -> dict | None:

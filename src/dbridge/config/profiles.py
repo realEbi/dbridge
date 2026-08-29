@@ -1,4 +1,4 @@
-"""Load connection profiles from connections.toml.
+"""Load/save/delete connection profiles in connections.toml.
 
 File format:
     [connections.mydb]
@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import sys
 import tomllib
+import tomli_w
 from pathlib import Path
 
 
@@ -25,17 +26,48 @@ def _config_dir() -> Path:
     return Path(base) / "dbridge"
 
 
+def _profiles_path() -> Path:
+    return _config_dir() / "connections.toml"
+
+
+def _read_raw(path: Path) -> dict:
+    try:
+        return tomllib.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+
+
 def load_profiles(path: Path | None = None) -> dict[str, dict]:
     """Return {name: {adapter, config}} from connections.toml; {} if file absent."""
     if path is None:
-        path = _config_dir() / "connections.toml"
-    try:
-        data = tomllib.loads(path.read_text())
-    except FileNotFoundError:
-        return {}
-    connections = data.get("connections", {})
+        path = _profiles_path()
+    connections = _read_raw(path).get("connections", {})
     return {
         name: {"adapter": entry["adapter"], "config": entry.get("config", {})}
         for name, entry in connections.items()
         if "adapter" in entry
     }
+
+
+def save_profile(name: str, adapter: str, config: dict, path: Path | None = None) -> None:
+    """Upsert a profile entry in connections.toml."""
+    if path is None:
+        path = _profiles_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = _read_raw(path)
+    data.setdefault("connections", {})[name] = {"adapter": adapter, "config": config}
+    path.write_bytes(tomli_w.dumps(data).encode())
+
+
+def delete_profile(name: str, path: Path | None = None) -> bool:
+    """Remove a profile by name. Returns True if it existed."""
+    if path is None:
+        path = _profiles_path()
+    data = _read_raw(path)
+    connections = data.get("connections", {})
+    if name not in connections:
+        return False
+    del connections[name]
+    data["connections"] = connections
+    path.write_bytes(tomli_w.dumps(data).encode())
+    return True

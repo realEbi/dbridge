@@ -23,3 +23,11 @@ _Avoid_: protocol (the protocol is JSON-RPC/DSP; the transport is the channel)
 **Core Engine**:
 The transport-agnostic business-logic layer sitting between Transport and Adapters: session management, query dispatch, schema registry, completion. Owns no driver code.
 _Avoid_: backend, service
+
+**Profile** (a.k.a. Connection Profile):
+A named, persisted configuration entry in `~/.config/dbridge/connections.toml` describing how to reach a database (adapter + config dict). Managed by the server via `dbridge/listProfiles`, `dbridge/saveProfile`, `dbridge/deleteProfile`. The client treats profiles as data — it never reads or writes the TOML file directly.
+_Avoid_: connection (when meaning the saved config), datasource
+
+**Neovim Client**:
+The Lua plugin (`dbridge.nvim`) that spawns the dbridge server as a stdio child process and communicates with it over JSON-RPC 2.0 with LSP framing. Lives in a separate repo. Owns no database logic.
+_Avoid_: frontend (too generic), extension
