@@ -1,6 +1,6 @@
 # 02 — Lua integration test harness against a real server
 
-Status: ready-for-agent
+Status: done (dbridge.nvim 319cbf1)
 Repo: `dbridge.nvim`
 
 ## Parent
@@ -31,12 +31,27 @@ that catches the class of bug this phase exists to fix.
 
 ## Acceptance criteria
 
-- [ ] `make test` runs green and the placeholder test is gone
-- [ ] A multi-chunk result set round-trips with the correct row count
-- [ ] Profile CRUD round-trips without touching the real config directory
-- [ ] Unknown session and unknown profile assert on their DSP error codes
-- [ ] Suite tears down every spawned server; no orphaned processes
+- [x] `make test` runs green and the placeholder test is gone
+- [x] A multi-chunk result set round-trips with the correct row count
+- [x] Profile CRUD round-trips without touching the real config directory
+- [x] Unknown session and unknown profile assert on their DSP error codes
+- [x] Suite tears down every spawned server; no orphaned processes
 
 ## Blocked by
 
 - `.scratch/phase-2-client-hardening/issues/01-land-client-migration.md`
+
+## Notes from implementation
+
+Tests had to move into a **child Neovim**. The first in-process attempt failed
+because the transport is async: driving it needs `vim.wait`, and a nested
+`vim.wait` re-enters MiniTest's own scheduler, so one file's `pre_once` hook
+executed another file's cases mid-request. `tests/child_env.lua` now runs in the
+child and does the blocking; the parent drives it over RPC.
+
+The Makefile also vendors `nui.nvim`, since the lifecycle/results/completion
+tests mount the real UI.
+
+40 cases, green on three consecutive runs with no orphaned processes.
+Mutation-checked: reintroducing the empty-params and column-order bugs produces
+7 failures.

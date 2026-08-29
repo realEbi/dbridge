@@ -86,7 +86,7 @@ See `.scratch/phase-2-client-hardening/issues/` — each issue is independently
 grabbable and carries its own acceptance criteria:
 
 - [x] `01-land-client-migration.md` — commit the rewrite, delete the REST island
-- [ ] `02-lua-integration-harness.md` — `mini.test` against a real server (**only remaining item**)
+- [x] `02-lua-integration-harness.md` — `mini.test` against a real server
 - [x] `03-cursor-aware-completion.md` — optional `position` on `dbridge/complete`
 - [x] `04-client-sends-cursor.md` — send buffer + byte offset from `cmp.lua`
 - [x] `05-results-panel-correctness.md` — column order + truncation warnings
