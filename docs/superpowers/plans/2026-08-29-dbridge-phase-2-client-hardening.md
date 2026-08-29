@@ -85,12 +85,13 @@ assertion, dropped because it did not pass.
 See `.scratch/phase-2-client-hardening/issues/` — each issue is independently
 grabbable and carries its own acceptance criteria:
 
-- [ ] `01-land-client-migration.md` — commit the rewrite, delete the REST island
-- [ ] `02-lua-integration-harness.md` — `mini.test` against a real server
-- [ ] `03-cursor-aware-completion.md` — optional `position` on `dbridge/complete`
-- [ ] `04-client-sends-cursor.md` — send buffer + byte offset from `cmp.lua`
-- [ ] `05-results-panel-correctness.md` — column order + truncation warnings
-- [ ] `06-panel-close-hangs-neovim.md` — BufUnload re-entry hangs the editor
+- [x] `01-land-client-migration.md` — commit the rewrite, delete the REST island
+- [ ] `02-lua-integration-harness.md` — `mini.test` against a real server (**only remaining item**)
+- [x] `03-cursor-aware-completion.md` — optional `position` on `dbridge/complete`
+- [x] `04-client-sends-cursor.md` — send buffer + byte offset from `cmp.lua`
+- [x] `05-results-panel-correctness.md` — column order + truncation warnings
+- [x] `06-panel-close-hangs-neovim.md` — BufUnload re-entry hangs the editor
+- [x] `07-empty-params-and-sqlite-persistence.md` — two silent defects found while verifying
 
 ## Out of scope
 

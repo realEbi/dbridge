@@ -1,6 +1,6 @@
 # 05 — Results panel: column order and truncation
 
-Status: ready-for-agent
+Status: done (dbridge.nvim 69e1b26)
 Repo: `dbridge.nvim`
 
 ## Parent
@@ -30,12 +30,12 @@ Keep the client-side pagination as-is; server-side cursors are out of scope
 
 ## Acceptance criteria
 
-- [ ] Rendered column order matches `query_result.columns` exactly, asserted in
+- [x] Rendered column order matches `query_result.columns` exactly, asserted in
       an integration test with a table whose column names do not sort
       alphabetically
-- [ ] A query exceeding `max_rows` shows the truncation warning in the panel
-- [ ] A query returning no rows still renders `(no results)` without error
-- [ ] A query whose columns include duplicates or NULL values does not crash
+- [x] A query exceeding `max_rows` shows the truncation warning in the panel
+- [x] A query returning no rows still renders `(no results)` without error
+- [x] A query whose columns include duplicates or NULL values does not crash
 
 ## Blocked by
 

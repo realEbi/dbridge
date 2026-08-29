@@ -1,6 +1,6 @@
 # 06 — Closing a panel hangs Neovim (BufUnload re-entry)
 
-Status: ready-for-agent
+Status: done (dbridge.nvim d2ae54b)
 Priority: **highest in the phase** — this hangs the editor
 Repo: `dbridge.nvim`
 
@@ -51,12 +51,12 @@ build UI at all, and the server job should be stopped so no process is orphaned.
 
 ## Acceptance criteria
 
-- [ ] Closing one panel with `:q` does not hang; the remaining layout tears down
+- [x] Closing one panel with `:q` does not hang; the remaining layout tears down
       cleanly
-- [ ] `:qa!` with the layout open exits promptly
-- [ ] `:Dbridge` still re-opens a working layout after the UI has been closed
-- [ ] The server child process is stopped on exit, not orphaned
-- [ ] Covered by a test in the issue-02 harness that mounts, closes a panel, and
+- [x] `:qa!` with the layout open exits promptly
+- [x] `:Dbridge` still re-opens a working layout after the UI has been closed
+- [x] The server child process is stopped on exit, not orphaned
+- [x] Covered by a test in the issue-02 harness that mounts, closes a panel, and
       asserts Neovim is still responsive
 
 ## Blocked by

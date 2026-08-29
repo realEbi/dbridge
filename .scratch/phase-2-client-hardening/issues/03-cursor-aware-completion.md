@@ -1,6 +1,6 @@
 # 03 — Cursor-aware completion (`position` param)
 
-Status: ready-for-agent
+Status: done (dbridge dff1d72)
 Repo: `dbridge`
 
 ## Parent
@@ -32,14 +32,14 @@ empty/flat rather than crash.
 
 ## Acceptance criteria
 
-- [ ] `complete("SELECT  FROM users", position=7)` returns `users`' columns with
+- [x] `complete("SELECT  FROM users", position=7)` returns `users`' columns with
       kind `column`
-- [ ] `complete("SELECT * FROM ")` with no `position` behaves exactly as before
-- [ ] `complete("SELECT \nFROM users", position=7)` returns columns — the
+- [x] `complete("SELECT * FROM ")` with no `position` behaves exactly as before
+- [x] `complete("SELECT \nFROM users", position=7)` returns columns — the
       multi-line case that currently yields nothing
-- [ ] The restored SELECT-position test asserts on labels and fails if the
+- [x] The restored SELECT-position test asserts on labels and fails if the
       classification regresses
-- [ ] `ruff check src/ tests/core/test_completion.py` is clean
+- [x] `ruff check src/ tests/core/test_completion.py` is clean
 
 ## Blocked by
 

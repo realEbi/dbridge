@@ -1,6 +1,6 @@
 # 01 — Land the client migration + delete the REST island
 
-Status: ready-for-agent
+Status: done (dbridge.nvim 7e3594e, c4720f8, efdacb0)
 Repo: `dbridge.nvim`
 
 ## Parent
@@ -34,11 +34,11 @@ do this first.**
 
 ## Acceptance criteria
 
-- [ ] Working tree is clean; `git log` shows the migration
-- [ ] No file under `lua/` requires a deleted module (grep for `require("dbridge.`)
-- [ ] `:Dbridge` opens the three-panel layout against a running server
-- [ ] `deps/` is gitignored and `make test` still bootstraps it
-- [ ] README documents `server_cmd` and no longer mentions `serverUrl` or curl
+- [x] Working tree is clean; `git log` shows the migration
+- [x] No file under `lua/` requires a deleted module (grep for `require("dbridge.`)
+- [x] `:Dbridge` opens the three-panel layout against a running server
+- [x] `deps/` is gitignored and `make test` still bootstraps it
+- [x] README documents `server_cmd` and no longer mentions `serverUrl` or curl
 
 ## Blocked by
 

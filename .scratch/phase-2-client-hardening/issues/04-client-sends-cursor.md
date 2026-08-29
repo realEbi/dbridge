@@ -1,6 +1,6 @@
 # 04 — Client sends buffer + cursor to completion
 
-Status: ready-for-agent
+Status: done (dbridge.nvim b2b96d8)
 Repo: `dbridge.nvim`
 
 ## Parent
@@ -26,11 +26,11 @@ items, `"SELECT \nFROM users"` → 1 item.
 
 ## Acceptance criteria
 
-- [ ] Completion after `SELECT ` on line 1 with `FROM users` on line 2 returns
+- [x] Completion after `SELECT ` on line 1 with `FROM users` on line 2 returns
       `users`' columns
-- [ ] Completion after `FROM ` still returns table names
-- [ ] Byte offset is correct for a buffer containing multi-byte characters
-- [ ] Integration test in the suite from issue 02 covers the multi-line case
+- [x] Completion after `FROM ` still returns table names
+- [x] Byte offset is correct for a buffer containing multi-byte characters
+- [x] Integration test in the suite from issue 02 covers the multi-line case
 
 ## Blocked by
 
