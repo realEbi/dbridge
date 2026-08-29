@@ -93,6 +93,13 @@ tests/
 | `dbridge/saveProfile` | `name`, `adapter`, `config?` | Upsert a profile → `{ok}` |
 | `dbridge/deleteProfile` | `name` | Remove a profile → `{ok}` (false if absent) |
 
+## Backlog
+
+`docs/backlog.md` is the durable record of known defects, deferred work, and
+open questions that outlive a single phase. Check it before starting new work,
+and add to it rather than leaving a finding in a commit message — that is where
+they get lost.
+
 ## Repo-Specific Patterns
 
 - **src layout**: package lives under `src/dbridge/`, not at root. Tests import `dbridge` directly.
