@@ -1,140 +1,103 @@
 # AGENTS.md
 
-dbridge is a **stdio JSON-RPC 2.0 server** (LSP-style framing) that bridges
-database clients to multiple database engines via a three-layer architecture:
-**Transport / Core Engine / Adapters**. Entry point: `python -m dbridge.server`.
+dbridge is a Python stdio JSON-RPC server with Transport / Core Engine / Adapters
+boundaries. The package lives under `src/dbridge/`; the entry point is
+`python -m dbridge.server`.
 
-## Directory Overview
+## Before starting work
 
-```
-src/dbridge/
-├── server.py              # Entry point: wires StdioTransport → Dispatcher → Engine
-├── config/
-│   ├── settings.py        # Global settings (pydantic-settings, env prefix dbridge_)
-│   └── profiles.py        # Read/write connection profiles in connections.toml
-├── adapters/
-│   ├── base.py            # DBAdapter ABC, ColumnDef, TableSchema, QueryResult
-│   ├── registry.py        # INSTALLED_ADAPTERS + create_adapter()
-│   ├── sqlite.py          # SQLite adapter
-│   ├── duckdb.py          # DuckDB adapter (no pandas)
-│   └── _parked/           # mysql, postgres, snowflake (Phase 2)
-├── core/
-│   ├── engine.py          # Engine: top-level orchestrator (connect/execute/complete/…)
-│   ├── session.py         # SessionManager + Session
-│   ├── executor.py        # execute() with row-cap + truncation warnings
-│   ├── schema_registry.py # In-memory TTL cache for list_tables / get_table_schema
-│   └── completion.py      # Tier-1 SQL completion (FROM/JOIN → tables, SELECT/WHERE → columns)
-├── protocol/
-│   ├── handlers.py        # Dispatcher: JSON-RPC method → Engine call
-│   ├── messages.py        # make_response / make_error helpers
-│   ├── errors.py          # JSON-RPC error codes
-│   └── transport/
-│       └── stdio.py       # StdioTransport: LSP-framed stdin/stdout loop
-├── exceptions/            # AdapterError, AdapterConnectionError, AdapterQueryError
-└── logging/__init__.py    # get_logger() factory
-tests/
-├── adapters/              # test_sqlite.py, test_duckdb.py
-├── config/                # test_profiles.py
-├── core/                  # test_completion.py, test_schema_registry.py, test_session.py
-├── protocol/              # test_handlers.py, test_framing.py
-└── test_e2e_stdio.py      # End-to-end subprocess tests
-```
+1. Read [CONTEXT.md](CONTEXT.md) for domain terms and
+   [current architecture](docs/architecture.md) for implemented behavior.
+2. Read the relevant [roadmap](docs/roadmap.md) milestone,
+   [backlog item](docs/backlog/README.md), and [ADRs](docs/adr/).
+3. Inspect active OpenSpec changes, relevant capability specs, source, and tests.
+   Use `openspec list --json` for changes and `openspec list --specs` for specs.
+4. Keep the distinction between implemented behavior, accepted requirements,
+   proposed changes, and future ideas explicit. If evidence conflicts, record
+   the mismatch and resolve it in the change; do not silently rewrite intent.
 
-## Key Subsystems
+## Documentation ownership
 
-### Transport (`protocol/transport/stdio.py`)
-- Reads LSP-framed messages from stdin (`Content-Length: N\r\n\r\n{json}`).
-- Passes each parsed dict to `Dispatcher.handle()`, writes the response back.
-- Runs synchronously in a `while True` loop; EOF exits cleanly.
+Each document has one job. Update the relevant owners in the same change as the
+work they describe; use links for detail owned elsewhere.
 
-### Core Engine (`core/engine.py`)
-- `Engine` owns a `SessionManager` (live adapter instances) and a per-session `SchemaRegistry` (TTL cache).
-- All public methods map 1-to-1 to JSON-RPC methods in the Dispatcher.
-- `executor.execute()` enforces `max_rows` and appends a truncation warning when hit.
-
-### Adapters (`adapters/`)
-- `DBAdapter` ABC (`adapters/base.py`) defines: `connect`, `disconnect`, `execute`, `list_databases`, `list_schemas`, `list_tables`, `get_table_schema`, `dialect_name`, `get_keywords`.
-- To add an adapter: subclass `DBAdapter`, register in `adapters/registry.py`, add optional dep to `pyproject.toml`.
-- `INSTALLED_ADAPTERS` in `adapters/registry.py` lists currently registered adapters (`sqlite`, `duckdb`). mysql/postgres/snowflake are parked in `adapters/_parked/`.
-
-### Schema Registry (`core/schema_registry.py`)
-- Per-session hot-only in-memory TTL cache (default 60 s).
-- Caches `list_tables()` and `get_table_schema(fqn)` results.
-- `refresh()` clears all cached entries (used by `dbridge/refreshSchema`).
-
-### Completion (`core/completion.py`)
-- `complete(sql, list_tables_fn, get_columns_fn, get_keywords_fn)` — regex dispatch:
-  - `FROM`/`JOIN` position → table names (kind: `table`)
-  - `SELECT`/`WHERE`/`AND`/`OR`/`ON` position → columns of in-scope tables (kind: `column`)
-  - otherwise → dialect keywords (kind: `keyword`)
-- Uses `sqlglot` to extract referenced tables from partial SQL; degrades gracefully on errors.
-
-### Profiles (`config/profiles.py`)
-- Reads/writes `~/.config/dbridge/connections.toml` (Linux/macOS) or `%APPDATA%\dbridge\connections.toml` (Windows).
-- Format: `[connections.<name>]` with `adapter` and optional `[connections.<name>.config]`.
-- Missing file returns `{}` — not an error. Profiles are data only; loading does not create a live adapter.
-- `save_profile`/`delete_profile` upsert and remove entries via `tomli-w`; `get_profile` raises `ProfileNotFoundError`.
-- The server owns the file — clients go through the `dbridge/*Profile*` methods, never the TOML.
-
-### JSON-RPC Method Surface (`protocol/handlers.py`)
-| Method | Params | Description |
+| Document | Owns | Update when |
 |---|---|---|
-| `dbridge/connect` | `profile` **or** `adapter` + `config` | Create session → `{session_id}` |
-| `dbridge/disconnect` | `session_id` | Close session → `{ok}` |
-| `dbridge/execute` | `session_id`, `sql` | Run SQL → `QueryResult` |
-| `dbridge/listDatabases` | `session_id` | List databases |
-| `dbridge/listSchemas` | `session_id`, `database?` | List schemas |
-| `dbridge/listTables` | `session_id`, `database?`, `schema?` | List tables (cached) |
-| `dbridge/getTableSchema` | `session_id`, `fqn` | Column/PK/FK info (cached) |
-| `dbridge/complete` | `session_id`, `sql`, `position?` | Tier-1 completion items; `position` = cursor byte offset into `sql` (default: end) |
-| `dbridge/getERD` | `session_id` | Placeholder → `{status, tables}` |
-| `dbridge/refreshSchema` | `session_id` | Clear schema cache → `{ok}` |
-| `dbridge/listProfiles` | — | Saved profiles → `{name: {adapter, config}}` |
-| `dbridge/saveProfile` | `name`, `adapter`, `config?` | Upsert a profile → `{ok}` |
-| `dbridge/deleteProfile` | `name` | Remove a profile → `{ok}` (false if absent) |
+| [README.md](README.md) | User setup, usage, supported RPCs and settings | Public usage or support changes |
+| [CONTEXT.md](CONTEXT.md) | Domain vocabulary | A term is introduced or its meaning changes |
+| [docs/architecture.md](docs/architecture.md) | Current runtime structure, boundaries, and limits | Implemented architecture changes |
+| [docs/roadmap.md](docs/roadmap.md) | Future outcomes, proposed sequencing, dependencies | Direction changes or an outcome ships |
+| [docs/adr/](docs/adr/) | Enduring architectural decisions and rationale | A significant decision is accepted or superseded |
+| [docs/backlog/](docs/backlog/README.md) | One file per deferred idea, defect, or open question | Work is discovered, selected, resolved, or dropped |
+| [docs/development.md](docs/development.md) | Tool setup, workflow commands, verification, release process | The development process changes |
+| [docs/manual-testing-guide.md](docs/manual-testing-guide.md) | Reproducible manual checks | The demonstrated behavior or test setup changes |
+| [openspec/specs/](openspec/specs/) | Accepted, testable capability contracts | A verified change is synchronized |
+| [openspec/changes/](openspec/changes/) | Active proposal, requirement deltas, design, and tasks | Scope, decisions, implementation, or verification progresses |
+| [openspec/config.yaml](openspec/config.yaml) | Concise OpenSpec context and artifact/operation guidance | Project-wide planning conventions change |
+| AGENTS.md | Reading order, routing, and document maintenance rules | Ownership or engineering conventions change |
 
-## Backlog
+Current architecture describes implemented code. The roadmap does not establish
+current behavior. Specs are contracts, not proof that the implementation conforms;
+check the code/tests and record discrepancies. New capability specs can grow
+incrementally as their areas are changed.
 
-`docs/backlog.md` is the durable record of known defects, deferred work, and
-open questions that outlive a single phase. Check it before starting new work,
-and add to it rather than leaving a finding in a commit message — that is where
-they get lost.
+## OpenSpec workflow
 
-## Repo-Specific Patterns
+Use the standard `spec-driven` schema for features, behavior changes, substantial
+refactors, and workflow migrations. Small spelling/link corrections can be direct
+edits. A tracked change with no requirement changes uses `skip_specs: true` in
+its `.openspec.yaml`; do not invent product requirements for documentation work.
 
-- **src layout**: package lives under `src/dbridge/`, not at root. Tests import `dbridge` directly.
-- **Synchronous**: no asyncio; all adapters and the transport loop are sync (Phase 1 decision, see `docs/adr/0001-sync-core-for-phase-1.md`).
-- **DuckDB — no pandas**: `execute()` uses native `duckdb` fetch; introspection via `information_schema`.
-- **Row cap**: `executor.execute()` truncates to `max_rows` and appends a warning string to `QueryResult.warnings`.
-- **uv scripts**: `uv run python -m dbridge.server` to start; `uv run --group test pytest` for tests.
+- Explore uncertain scope; propose one coherent outcome with a descriptive
+  kebab-case name. Create change scaffolds with the OpenSpec CLI.
+- Put requirements and testable scenarios in the change's delta specs, technical
+  choices in its design, and the only implementation checklist in `tasks.md`.
+  Include design when the schema's conditions apply.
+- Review the artifacts, then apply the requested implementation. Update the
+  planning artifacts when discoveries change the agreed scope or approach.
+- Verify each task before checking it off. New unrelated findings go into
+  individual backlog files, with evidence and the owning repository.
+- Before completion, update every affected document in the ownership table.
+  Synchronize verified spec deltas, archive the completed change, and update
+  backlog links to its archive location. Update roadmap outcomes and remaining
+  dependencies; do not mark a milestone done because just one task finished.
 
-## CI / Release
-- Workflow: `.github/workflows/publish-pypi.yml`
-- Trigger: any tag push (pattern `*`)
-- Steps: build wheel + sdist → publish to TestPyPI → publish to PyPI (trusted publishing) → sign with Sigstore → create GitHub Release
-- Tags follow `alpha_X.Y.Z` convention (e.g. `alpha_0.2.10`)
+Backlog conventions and the item template live in
+[docs/backlog/README.md](docs/backlog/README.md). Keep item IDs stable. A selected
+item links its OpenSpec change; completed/dropped items retain a brief resolution.
+Auxiliary engineering skills may assist within this workflow. Do not create
+separate phase PRDs, duplicate task trackers, or skill-specific implementation
+plans. Read relevant history from Git when needed.
 
-## Environment Variables (prefix `dbridge_`)
+This repository owns server behavior and the DSP contract. Client repositories
+own editor/UI behavior. For cross-repository work, name the owners, link the
+changes, define compatibility, and verify the shared flow; a client-only idea in
+this backlog does not authorize editing that client.
 
-| Variable | Default | Description |
-|---|---|---|
-| `dbridge_logging_level` | `INFO` | Log level |
-| `dbridge_max_rows` | `100` | Row cap for `execute` (truncation warning added when hit) |
-| `dbridge_cache_ttl_seconds` | `60` | Schema registry TTL |
+## Engineering conventions
 
-## Agent skills
+- Use the glossary: Profile is persisted configuration; Session is a live Adapter
+  binding and can be created from inline configuration too.
+- The current Core Engine, Adapters, and stdio loop are synchronous. Revisiting
+  that is roadmap work requiring an explicit design and a superseding decision;
+  synchronous execution is not a permanent ban on future architecture changes.
+- Keep driver imports in Adapters. Only SQLite and DuckDB are currently registered;
+  parked adapters must not become load-time dependencies.
+- DuckDB execution uses native fetch methods without pandas.
+- Keep stdout reserved for protocol frames. Use logging for diagnostics.
+- Preserve byte-based `Content-Length` framing and UTF-8 cursor offsets.
+- Preserve result column order, explicit truncation warnings, and Profile/Session
+  separation. The row cap currently applies after materialization.
+- Clients manage Profiles through RPCs. Tests and examples use isolated temporary
+  data/configuration and clean up subprocesses.
+- Prefer small working slices and meaningful behavior verification. Test order is
+  a per-change choice; match checks to risk and avoid tests for prose-only edits.
 
-### Issue tracker
-
-Issues and PRDs live as markdown files under `.scratch/<feature>/` in this repo. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Five canonical triage roles, using the default label strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context layout — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Use `uv run python -m dbridge.server` to start and
+`uv run --group test pytest` for the server suite. See
+[development instructions](docs/development.md) for other checks and release
+details. Preserve unrelated user changes; committing, publishing, or releasing
+requires the user's authorization.
 
 ## Custom Instructions
 <!-- This section is for human and agent-maintained operational knowledge.

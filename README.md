@@ -11,13 +11,19 @@ database engines via a **stdio JSON-RPC 2.0** interface (LSP-style framing).
 Designed to back editor plugins and TUI clients like
 [dbridge.nvim](https://github.com/realebi/dbridge.nvim).
 
+The current server executes requests synchronously. See the
+[current architecture](docs/architecture.md) and the separate
+[roadmap](docs/roadmap.md) for the planned evolution.
+
 ## Table of Contents
 
 - [Installation](#installation)
 - [Run the Server](#run-the-server)
-- [Connection Profiles](#connection-profiles)
+- [Profiles](#profiles)
 - [JSON-RPC Methods](#json-rpc-methods)
 - [Development](#development)
+- [Documentation](#documentation)
+- [UIs](#uis)
 - [License](#license)
 
 ## Installation
@@ -41,11 +47,12 @@ With uv:
 uv run python -m dbridge.server
 ```
 
-## Connection Profiles
+## Profiles
 
-Named connection profiles can be stored in
+Named Profiles are stored by the server in
 `~/.config/dbridge/connections.toml` (Linux/macOS) or
-`%APPDATA%\dbridge\connections.toml` (Windows):
+`%APPDATA%\dbridge\connections.toml` (Windows). On Linux/macOS,
+`XDG_CONFIG_HOME` can override the base configuration directory. File format:
 
 ```toml
 [connections.mydb]
@@ -102,23 +109,24 @@ Clone the repo and install dependencies with [uv](https://docs.astral.sh/uv/):
 uv sync
 ```
 
-Run the server:
-
-```console
-uv run python -m dbridge.server
-```
-
 Run tests:
 
 ```console
 uv run --group test pytest
 ```
 
-Type checking:
+New work follows OpenSpec. See the [development guide](docs/development.md) for
+workflow commands, type/lint checks, verification, and release details.
 
-```console
-uv run --group types mypy src/dbridge tests
-```
+## Documentation
+
+- [Current architecture](docs/architecture.md) — implemented structure and limits
+- [Roadmap](docs/roadmap.md) — future direction and dependencies
+- [Backlog](docs/backlog/README.md) — individual deferred ideas and defects
+- [Manual testing](docs/manual-testing-guide.md) — a runnable stdio client example
+- [Domain vocabulary](CONTEXT.md) and [architectural decisions](docs/adr/)
+- [Agent workflow and document ownership](AGENTS.md)
+- [Capability specs](openspec/specs/) and [OpenSpec changes](openspec/changes/)
 
 ## UIs
 

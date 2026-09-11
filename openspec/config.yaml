@@ -1,0 +1,34 @@
+schema: spec-driven
+
+context: |
+  dbridge is a Python stdio JSON-RPC server using a src layout and uv.
+  Read AGENTS.md for workflow and document ownership, CONTEXT.md for vocabulary,
+  docs/architecture.md for implemented behavior, and relevant docs/adr/ decisions.
+  Read docs/roadmap.md and the relevant docs/backlog/ item for future work.
+  The current server is synchronous with SQLite and DuckDB; future architecture
+  requires an explicit change and must not be described as already implemented.
+  The server owns the DSP contract. Client repositories own editor/UI behavior.
+
+rules:
+  proposal:
+    - Identify related backlog items and roadmap outcomes, or state that none apply.
+    - Name affected repositories, scope limits, and protocol compatibility impact.
+  specs:
+    - Use the vocabulary in CONTEXT.md and distinguish guarantees from known gaps.
+    - Ground existing behavior in source/tests; preserve UTF-8 offset and framing semantics when affected.
+  design:
+    - Reference relevant ADRs and identify decisions that would supersede them.
+    - Resolve server/client ownership and migration compatibility for cross-repository changes.
+  tasks:
+    - Include the affected documentation updates from the AGENTS.md ownership table.
+    - Organize work into verifiable slices; name the owning repo and integration check for cross-repository tasks.
+
+operations:
+  apply:
+    guidance:
+      - Keep one implementation checklist in the change; record unrelated findings in docs/backlog/.
+      - Match verification to risk and isolate test databases, Profile files, and subprocesses.
+  archive:
+    guidance:
+      - Check affected current architecture, roadmap, glossary, ADR, usage, and example updates before completion.
+      - Synchronize verified requirement deltas and update linked backlog items to the archive location.

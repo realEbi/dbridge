@@ -1,7 +1,27 @@
 # Synchronous core engine and adapters for Phase 1
 
-The design doc mandates an `asyncio`-everywhere core with `AsyncIterator` streaming. For Phase 1 we deliberately build a **synchronous** core engine and synchronous adapters instead.
+Status: accepted; still applicable until superseded by a new ADR.
 
-Phase 1's only transport is stdio serving a single Neovim client, so there is no concurrency to exploit, and every driver we ship (`sqlite3`, `duckdb`) is blocking with no usable async equivalent. Going async would force `run_in_executor` wrapping or driver swaps for negligible benefit. Consequently we also drop streaming results, query cancellation, and transactions from the Phase 1 adapter interface — these only make sense alongside async/multi-client transports.
+## Decision and rationale
 
-Async is revisited in a later phase if/when socket, TCP, or WebSocket transports serve multiple concurrent clients.
+The original vision called for an async core and streaming results. Phase 1
+deliberately chose a synchronous Core Engine and synchronous Adapters. Its only
+Transport was stdio serving one client process; the shipped sqlite3 and duckdb
+calls were blocking. Async orchestration would have added wrapping or driver
+changes before concurrent work was in scope.
+
+Streaming, query cancellation, and explicit transaction APIs were also deferred
+to keep that release small. These are scope decisions, not a claim that every
+feature requires asyncio. In particular, explicit transactions can be implemented
+with synchronous adapters. SQLite currently uses autocommit; a transaction API
+must define how it interacts with that behavior.
+
+## Consequences and revisit trigger
+
+Multiple Sessions can exist, but the process handles requests sequentially. The
+[current architecture](../architecture.md) documents the implemented call path.
+
+Revisit this decision when concurrent queries, cancellation, or additional client
+transports are selected from the [roadmap](../roadmap.md). Record the chosen
+execution model and migration strategy in an OpenSpec change and a superseding
+ADR before describing that model as the current architecture.

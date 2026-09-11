@@ -2,18 +2,26 @@
 
 dbridge is a protocol-driven backend that bridges database engines to developer clients (Neovim first), exposing a uniform interface for queries, schema browsing, and SQL completion over JSON-RPC.
 
+This file owns domain terminology. See [current architecture](docs/architecture.md)
+for implemented behavior and the [roadmap](docs/roadmap.md) for future direction.
+
 ## Language
+
+**DSP (dbridge Server Protocol)**:
+The dbridge-specific methods and request/result contracts carried over JSON-RPC
+2.0. The current stdio Transport uses LSP-style framing; that does not make DSP
+the full Language Server Protocol.
 
 **Adapter**:
 The database-engine-specific implementation behind a single interface. The core engine never talks to a driver directly — only through an Adapter (e.g. the DuckDB adapter, the Postgres adapter).
 _Avoid_: driver, connector, backend
 
 **Session**:
-A live, server-side binding of one Profile to one instantiated Adapter, identified by a `session_id`. Carries the active database/schema. Created fresh by `dbridge/connect`; not persisted.
+A live, server-side binding to one instantiated Adapter, identified by a `session_id`. Created fresh by `dbridge/connect` from a saved Profile or inline adapter/config data; not persisted. The Session has active database/schema fields, but the current protocol does not expose methods to select them. Multiple Sessions do not imply concurrent query execution.
 _Avoid_: connection (ambiguous — say Profile for the config, Session for the live object)
 
 **Transport**:
-The layer that moves JSON-RPC messages between a client and the core engine over a specific channel (Phase 1: stdio). The core engine is transport-agnostic.
+The layer that moves JSON-RPC messages between a client and the core engine over a specific channel (currently stdio). The core engine is transport-agnostic.
 _Avoid_: protocol (the protocol is JSON-RPC/DSP; the transport is the channel)
 
 **Core Engine**:
