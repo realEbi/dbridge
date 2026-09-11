@@ -17,4 +17,4 @@ Port execution and introspection to DBAdapter, select the driver for the chosen 
 
 Inspect [parked MySQL](../../src/dbridge/adapters/_parked/mysql.py). Related: [concurrent execution](012-concurrent-execution.md).
 
-Coverage: the parked module is excluded from measurement via `omit` in [pyproject.toml](../../pyproject.toml) while it stays under `adapters/_parked/`. Porting it out of that directory re-includes it automatically, so this work must land with tests that keep the suite above the 85% floor — see [docs/development.md](../development.md).
+Coverage: the parked module is excluded from measurement via `omit` in [pyproject.toml](../../pyproject.toml) while it stays under `adapters/_parked/`. Porting it out of that directory re-includes it automatically, so this work must land with tests that keep the suite above the 85% floor — see [docs/development.md](../development.md) The exclusion and the floor were decided in an [archived change](../../openspec/changes/archive/2026-09-12-raise-test-coverage/design.md).

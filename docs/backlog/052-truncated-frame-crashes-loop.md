@@ -3,7 +3,7 @@
 - Repo: dbridge
 - Status: deferred
 - Change: none
-- Origin: Observed while raising test coverage (OpenSpec change `raise-test-coverage`).
+- Origin: Observed while raising test coverage ([archived change](../../openspec/changes/archive/2026-09-12-raise-test-coverage/proposal.md)).
 
 ## Problem / opportunity
 

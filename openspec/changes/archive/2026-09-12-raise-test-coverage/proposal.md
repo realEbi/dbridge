@@ -14,7 +14,7 @@ a reason: the end-to-end tests spawn `python -m dbridge.server` as a subprocess,
 so every line they exercise through the real stdio loop is counted as uncovered.
 `server.py` reads 0%, `transport/stdio.py` 66%, and six `Engine` methods are
 credited to nothing. Nothing enforces the number either — there is no
-`fail_under` and, as [docs/development.md](../../../docs/development.md) records,
+`fail_under` and, as [docs/development.md](../../../../docs/development.md) records,
 no pull-request test workflow at all. A later change can drop coverage to 60%
 and every check still passes.
 
@@ -45,7 +45,7 @@ and every check still passes.
   database fixtures currently duplicated across files, and
   `[tool.pytest.ini_options]` for `testpaths` and default options.
 - Document the coverage commands, the measured scope, and the threshold in
-  [docs/development.md](../../../docs/development.md).
+  [docs/development.md](../../../../docs/development.md).
 
 Not in scope: any change to server behavior or the DSP wire contract. This
 change adds tests, test configuration, and CI; it does not alter what the server
@@ -91,9 +91,9 @@ and this change either uses it or records its removal.
 **Related backlog and roadmap**
 - No backlog item covers test coverage or CI; none is being resolved here. A new
   item is not required, since this change owns the outcome directly.
-- [019](../../../docs/backlog/019-mysql-adapter.md),
-  [020](../../../docs/backlog/020-postgres-adapter.md), and
-  [021](../../../docs/backlog/021-snowflake-adapter.md) own bringing the parked
+- [019](../../../../docs/backlog/019-mysql-adapter.md),
+  [020](../../../../docs/backlog/020-postgres-adapter.md), and
+  [021](../../../../docs/backlog/021-snowflake-adapter.md) own bringing the parked
   MySQL, PostgreSQL, and Snowflake adapters onto the supported interface. Each
   must bring its module back into the measured scope when it lands; this change
   notes that obligation on those items rather than testing parked code now.
@@ -102,5 +102,5 @@ and this change either uses it or records its removal.
 - `DspError` in `protocol/errors.py` is defined but never raised or caught
   anywhere in the package — it is the only reason that module is below 100%.
   That is a finding, not a coverage problem; it becomes a new backlog item
-  alongside [027](../../../docs/backlog/027-unused-imports.md) rather than
+  alongside [027](../../../../docs/backlog/027-unused-imports.md) rather than
   getting a test written for dead code.

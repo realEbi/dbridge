@@ -49,9 +49,9 @@ See [proposal.md](proposal.md) — Why. The constraints that shape the approach:
 
 - Any change to server behavior, the DSP contract, or framing semantics.
 - Testing the parked adapters. Their coverage arrives with
-  [019](../../../docs/backlog/019-mysql-adapter.md) /
-  [020](../../../docs/backlog/020-postgres-adapter.md) /
-  [021](../../../docs/backlog/021-snowflake-adapter.md).
+  [019](../../../../docs/backlog/019-mysql-adapter.md) /
+  [020](../../../../docs/backlog/020-postgres-adapter.md) /
+  [021](../../../../docs/backlog/021-snowflake-adapter.md).
 - Chasing 100%. The floor is 85% and the target is ≥93%; the remainder is
   defensive branches whose tests would assert nothing.
 - Mutation testing, property-based testing, or a new test framework.
