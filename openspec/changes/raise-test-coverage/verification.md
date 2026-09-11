@@ -143,3 +143,38 @@ is not yet binding**: until the branch protection rule requires those two checks
 a red check can be merged past, and the spec's "Coverage is enforced on pull
 requests" requirement is not satisfied. Per task 5.7, this change is not
 complete until that is done or explicitly deferred by the user.
+
+## Correction during apply: the CI trigger would never have fired
+
+The workflow originally filtered `pull_request` to `branches: [main]`, following
+design decision 8's assumption that `main` is the integration branch. Checked
+against the repository, that assumption was wrong:
+
+```console
+$ git rev-list --count main..dbridge-2.0
+24
+$ git log -1 --format='%h %ad %s' --date=short main
+4756d18 2026-06-04 adds agent related files and docs
+$ git ls-tree --name-only main docs/ openspec/
+docs/agents
+```
+
+`main` is 24 commits and three months behind `dbridge-2.0` and contains neither
+`openspec/` nor `docs/backlog/` — this change builds on both. Work integrates
+into `dbridge-2.0`. A base-branch filter on `main` would have shipped a gate
+that never fires while looking fully configured, which is worse than no gate at
+all.
+
+Fixed by dropping the `branches:` filter from `pull_request` entirely, and
+listing both `main` and `dbridge-2.0` under `push`. Dropping the filter is also
+the better rule independent of this repository's layout: there is no base branch
+where a coverage regression is acceptable. The spec requirement, design decision
+8, and `docs/development.md` were all updated to match; the spec gained a
+scenario for a pull request into a non-default branch.
+
+## Apply status
+
+Committed to branch `raise-test-coverage` (off `dbridge-2.0`) and pushed to
+`origin`. Tasks 5.4–5.7 remain open pending a pull request run and a decision on
+which branch to protect — `main` is the default branch but idle, `dbridge-2.0`
+receives the work.
