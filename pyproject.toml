@@ -44,18 +44,37 @@ Source = "https://github.com/realebi/dbridge"
 
 [dependency-groups]
 dev = ["ruff", "black", "isort", "pyright", "pytest", "ipython"]
-test = ["coverage[toml]", "pytest", "pytest-cov", "pytest-mock"]
+test = ["coverage[toml]", "pytest", "pytest-cov"]
 types = ["mypy>=1.0.0"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Coverage is deliberately not in addopts: a focused single-test run would then
+# always fail the fail_under gate. Use `pytest --cov` for the gated run.
+addopts = "-ra"
+
 [tool.coverage.run]
-source_pkgs = ["dbridge", "tests"]
+# Measure the shipped server only. Test modules are excluded deliberately: a
+# test file scores near 100% by construction and tells you nothing about
+# dbridge. Parked adapters are excluded while they remain unregistered and
+# their drivers optional; porting one out of _parked/ re-includes it.
+source = ["src/dbridge"]
 branch = true
-parallel = true
-omit = ["src/dbridge/__about__.py"]
+omit = ["src/dbridge/__about__.py", "src/dbridge/adapters/_parked/*"]
 
 [tool.coverage.paths]
 dbridge = ["src/dbridge", "*/dbridge/src/dbridge"]
-tests = ["tests", "*/dbridge/tests"]
 
 [tool.coverage.report]
-exclude_lines = ["no cov", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
+# The floor, not the target. The suite runs well above this; the gap is
+# deliberate so an ordinary change does not trip the gate.
+fail_under = 85
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+  # An `@abstractmethod` with a bare `...` body holds no behavior. Covering one
+  # requires instantiating an ABC, which asserts nothing about dbridge.
+  "^\\s*\\.\\.\\.$",
+  "@(abc\\.)?abstractmethod",
+]

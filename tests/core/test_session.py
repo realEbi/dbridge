@@ -1,6 +1,7 @@
 import pytest
 
 from dbridge.core.session import SessionManager, SessionNotFoundError
+from dbridge.exceptions import AdapterError
 
 
 def test_create_and_get():
@@ -21,3 +22,40 @@ def test_close_removes_session():
     mgr.close(s.id)
     with pytest.raises(SessionNotFoundError):
         mgr.get(s.id)
+
+
+def test_close_unknown_session_is_a_noop():
+    """pop(id, None) means closing an unknown id does not raise."""
+    mgr = SessionManager()
+    mgr.close("no-such-session")
+
+
+def test_close_disconnects_the_adapter():
+    mgr = SessionManager()
+    session = mgr.create("sqlite", {"uri": ":memory:"})
+    adapter = session.adapter
+
+    mgr.close(session.id)
+
+    assert adapter.con is None
+
+
+def test_sessions_have_distinct_ids():
+    mgr = SessionManager()
+    first = mgr.create("sqlite", {"uri": ":memory:"})
+    second = mgr.create("sqlite", {"uri": ":memory:"})
+    assert first.id != second.id
+
+
+def test_new_session_has_no_active_scope():
+    """active_database/active_schema start unset; no protocol method sets them."""
+    mgr = SessionManager()
+    session = mgr.create("sqlite", {"uri": ":memory:"})
+    assert session.active_database is None
+    assert session.active_schema is None
+
+
+def test_unsupported_adapter_raises():
+    mgr = SessionManager()
+    with pytest.raises(AdapterError):
+        mgr.create("oracle", {})

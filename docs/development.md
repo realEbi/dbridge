@@ -23,7 +23,39 @@ uv run ruff check src/dbridge tests
 ```
 
 Use focused tests while changing behavior and run the server suite for runtime
-changes. Protocol/adapter changes need real driver or subprocess coverage where
+changes.
+
+### Coverage
+
+Coverage is deliberately not enabled by default, so a focused single-test run
+stays fast and does not trip the threshold. Add `--cov` for the gated run:
+
+```console
+uv run --group test pytest --cov                      # total only
+uv run --group test pytest --cov --cov-report=term-missing   # per-module gaps
+uv run --group test pytest --cov --cov-report=html    # browsable, htmlcov/index.html
+```
+
+Measurement covers `src/dbridge` and nothing else. Test modules are excluded
+because a test file scores near 100% by construction and says nothing about the
+server. The parked MySQL, PostgreSQL, and Snowflake adapters are excluded while
+they remain unregistered and their drivers optional; porting one out of
+`adapters/_parked/` brings it back into scope automatically, and that work must
+land with tests that hold the floor.
+
+**The suite must stay at or above 85%.** `fail_under = 85` in
+[pyproject.toml](../pyproject.toml) makes a run below it exit non-zero, locally
+and in CI alike, so a coverage regression is a failure rather than a number
+someone has to notice. 85 is the floor, not the target — the suite runs well
+above it, and that gap is what keeps an ordinary change from tripping the gate.
+Restore coverage rather than lowering the threshold.
+
+Coverage measures only the process pytest runs. `tests/test_e2e_stdio.py` spawns
+the server as a subprocess, so the behavior it exercises is proven but not
+measured; in-process tests cover the same paths deliberately. Keep both when
+changing the transport or entry point.
+
+Generated reports (`.coverage`, `htmlcov/`) are ignored by Git. Protocol/adapter changes need real driver or subprocess coverage where
 those boundaries matter. Run the affected client's integration checks for work
 spanning repositories. Isolate database and Profile files in temporary locations.
 
@@ -103,10 +135,26 @@ add an ADR and mark any superseded ADR accordingly. Preserve historical rational
 
 ## CI and release
 
-The current [release workflow](../.github/workflows/publish-pypi.yml) runs on tag
-pushes. It builds wheel/sdist artifacts; TestPyPI and PyPI publishing both depend
-on the build and can run independently. Signing and GitHub Release creation
-follow PyPI publication. There is currently no pull-request test workflow.
+The [test workflow](../.github/workflows/test.yml) runs the server suite with
+coverage on **every** pull request, whatever branch it targets, and on pushes to
+`main` and `dbridge-2.0`, across a Python 3.11 and 3.12 matrix. It fails when
+coverage falls below the 85% floor, so the threshold is enforced without anyone
+choosing to run it. The matrix sets `fail-fast: false` so both versions always
+report.
+
+The `pull_request` trigger carries no branch filter deliberately. Work integrates
+into `dbridge-2.0` rather than `main`, so a filter on the default branch would
+produce a gate that never fires while appearing configured.
+
+Its checks are named `test (3.11)` and `test (3.12)` — GitHub derives them from
+the job id, which is why the job deliberately has no `name:` field. Those two
+names are what a branch protection rule must require; renaming the job renames
+the checks and silently stops the rule from matching.
+
+The [release workflow](../.github/workflows/publish-pypi.yml) runs on tag pushes
+and is unaffected by the test workflow. It builds wheel/sdist artifacts; TestPyPI
+and PyPI publishing both depend on the build and can run independently. Signing
+and GitHub Release creation follow PyPI publication.
 
 Tags use the `alpha_X.Y.Z` convention, such as `alpha_0.2.10`. The package version
 is in [pyproject.toml](../pyproject.toml). Completing an OpenSpec change does not

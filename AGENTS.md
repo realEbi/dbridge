@@ -92,9 +92,15 @@ this backlog does not authorize editing that client.
   data/configuration and clean up subprocesses.
 - Prefer small working slices and meaningful behavior verification. Test order is
   a per-change choice; match checks to risk and avoid tests for prose-only edits.
+- Coverage of `src/dbridge` must stay at or above 85%; `pytest --cov` fails below
+  it, and the same gate runs on pull requests. Restore coverage rather than
+  lowering the threshold, and write tests that assert behavior — a test added
+  only to execute a line is a liability. Record dead code and defects found while
+  testing as backlog items instead of covering or fixing them in an unrelated
+  change.
 
-Use `uv run python -m dbridge.server` to start and
-`uv run --group test pytest` for the server suite. See
+Use `uv run python -m dbridge.server` to start, `uv run --group test pytest` for
+the server suite, and `uv run --group test pytest --cov` for the gated run. See
 [development instructions](docs/development.md) for other checks and release
 details. Preserve unrelated user changes; committing, publishing, or releasing
 requires the user's authorization.

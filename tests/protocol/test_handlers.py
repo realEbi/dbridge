@@ -1,6 +1,3 @@
-import pytest
-
-from dbridge.config import profiles
 from dbridge.core.engine import Engine
 from dbridge.protocol import errors
 from dbridge.protocol.handlers import Dispatcher
@@ -62,14 +59,7 @@ def test_notification_returns_none():
 
 
 # ── profile management over the protocol ──────────────────────────────────────
-
-@pytest.fixture
-def isolated_profiles(tmp_path, monkeypatch):
-    """Point the profiles module at a temp connections.toml instead of ~/.config."""
-    toml = tmp_path / "connections.toml"
-    monkeypatch.setattr(profiles, "_profiles_path", lambda: toml)
-    return toml
-
+# `isolated_profiles` comes from tests/conftest.py.
 
 def _rpc(d, _id, method, params):
     return d.handle({"jsonrpc": "2.0", "id": _id, "method": method, "params": params})
@@ -130,3 +120,61 @@ def test_get_erd_with_unknown_session_returns_session_not_found():
     d = make_dispatcher()
     resp = _rpc(d, 1, "dbridge/getERD", {"session_id": "no-such-session"})
     assert resp["error"]["code"] == errors.SESSION_NOT_FOUND
+
+
+# ── error mapping ─────────────────────────────────────────────────────────────
+
+def test_malformed_request_returns_invalid_request():
+    """A payload that fails JsonRpcRequest validation is reported, not raised."""
+    d = make_dispatcher()
+    resp = d.handle({"jsonrpc": "2.0", "id": 1})  # no method
+    assert resp["error"]["code"] == errors.INVALID_REQUEST
+
+
+def test_malformed_request_preserves_the_request_id():
+    d = make_dispatcher()
+    resp = d.handle({"jsonrpc": "2.0", "id": 42, "params": {}})
+    assert resp["id"] == 42
+
+
+def test_malformed_request_without_an_id_still_responds():
+    """Validation fails before the notification check, so an error still comes back."""
+    d = make_dispatcher()
+    resp = d.handle({"not": "a request"})
+    assert resp["error"]["code"] == errors.INVALID_REQUEST
+    assert resp["id"] is None
+
+
+def test_connection_failure_maps_to_connection_failed():
+    """sqlite without a uri raises AdapterConnectionError inside connect."""
+    d = make_dispatcher()
+    resp = _rpc(d, 1, "dbridge/connect", {"adapter": "sqlite", "config": {}})
+    assert resp["error"]["code"] == errors.CONNECTION_FAILED
+
+
+def test_query_failure_maps_to_query_error():
+    d = make_dispatcher()
+    sid = _rpc(d, 1, "dbridge/connect", {
+        "adapter": "sqlite", "config": {"uri": ":memory:"},
+    })["result"]["session_id"]
+
+    resp = _rpc(d, 2, "dbridge/execute", {"session_id": sid, "sql": "SELECT * FROM nope"})
+    assert resp["error"]["code"] == errors.QUERY_ERROR
+
+
+def test_missing_param_maps_to_invalid_request():
+    """A KeyError from a method lambda is reported as a missing param."""
+    d = make_dispatcher()
+    resp = _rpc(d, 1, "dbridge/execute", {"session_id": "whatever"})  # no sql
+    assert resp["error"]["code"] == errors.INVALID_REQUEST
+    assert "sql" in resp["error"]["message"]
+
+
+def test_successful_response_shape():
+    d = make_dispatcher()
+    resp = _rpc(d, 7, "dbridge/connect", {
+        "adapter": "sqlite", "config": {"uri": ":memory:"},
+    })
+    assert resp["jsonrpc"] == "2.0"
+    assert resp["id"] == 7
+    assert "error" not in resp
