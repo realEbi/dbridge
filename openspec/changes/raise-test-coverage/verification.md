@@ -172,9 +172,70 @@ where a coverage regression is acceptable. The spec requirement, design decision
 8, and `docs/development.md` were all updated to match; the spec gained a
 scenario for a pull request into a non-default branch.
 
-## Apply status
+## CI enforcement verified end to end
 
-Committed to branch `raise-test-coverage` (off `dbridge-2.0`) and pushed to
-`origin`. Tasks 5.4–5.7 remain open pending a pull request run and a decision on
-which branch to protect — `main` is the default branch but idle, `dbridge-2.0`
-receives the work.
+Committed to branch `raise-test-coverage` (off `dbridge-2.0`) and pushed;
+[PR #2](https://github.com/realEbi/dbridge/pull/2) targets `dbridge-2.0`.
+
+**Positive case — the checks run and pass (task 5.4).** Both matrix jobs went
+green on PR #2, with the total in each job log:
+
+```
+test (3.11)  TOTAL  539  4  84  1  99%
+test (3.11)  Required test coverage of 85.0% reached. Total coverage: 99.20%
+test (3.12)  TOTAL  539  4  84  1  99%
+test (3.12)  Required test coverage of 85.0% reached. Total coverage: 99.20%
+```
+
+Check names as GitHub reports them: **`test (3.11)`** and **`test (3.12)`** —
+observed, not assumed, then used verbatim in the protection rule.
+
+**Protection rule applied (task 5.6).** On `dbridge-2.0`, per the user's choice
+of that branch over the stale `main`:
+
+```json
+{"checks": ["test (3.11)", "test (3.12)"], "strict": true, "enforce_admins": true}
+```
+
+`strict: true` requires a branch to be up to date before merging, so a branch cut
+before a coverage-dropping merge cannot go green against stale base state.
+`enforce_admins: true` because the repository has a single admin — with it
+`false`, the only person the rule applies to could merge past a red check, making
+the guard advisory for exactly the wrong person. `required_pull_request_reviews`
+is `null`: requiring a review on a solo repository would block every pull request,
+since an author cannot approve their own.
+
+To relax the rule if CI ever breaks for an unrelated reason (a runner outage, a
+`setup-uv` regression):
+
+```console
+gh api -X DELETE repos/realEbi/dbridge/branches/dbridge-2.0/protection
+```
+
+**Negative case — the gate actually blocks (task 5.5).** A scratch pull request
+deleted seven test files, dropping coverage to 61% while every remaining test
+passed. Both jobs failed, attributed to coverage rather than to a test error:
+
+```
+ERROR: Coverage failure: total of 61 is less than fail-under=85
+FAIL Required test coverage of 85.0% not reached. Total coverage: 60.67%
+============================== 75 passed in 2.75s ==============================
+##[error]Process completed with exit code 1.
+```
+
+GitHub reported that pull request as `mergeStateStatus: BLOCKED` (its
+`mergeable: MERGEABLE` refers only to the absence of merge conflicts; `BLOCKED`
+is the protection rule refusing the merge). PR #2, with both checks green, reports
+`CLEAN`. The scratch pull request was closed unmerged and its branch deleted
+locally and on `origin`.
+
+This is the check that distinguishes a real guard from a configured-looking one:
+all tests passing plus coverage below the floor still refuses the merge.
+
+Task 5.7 did not apply — it was the contingency for 5.6 being blocked.
+
+## Remaining
+
+Nothing in this change. PR #2 is open and mergeable, awaiting the user's review;
+merging is the user's call. After it merges, the change is ready for
+`/opsx:sync` and `/opsx:archive`.

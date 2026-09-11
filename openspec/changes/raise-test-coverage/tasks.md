@@ -133,17 +133,17 @@ not modified and must keep passing throughout.
       `python-version: ["3.11", "3.12"]` matrix running
       `uv run --group test pytest --cov --cov-report=term`. Leave
       `publish-pypi.yml` untouched and verify it is unmodified in the diff.
-- [ ] 5.4 Verify the workflow green on both matrix versions on a real pull
+- [x] 5.4 Verify the workflow green on both matrix versions on a real pull
       request, with the coverage total visible in each job log. Record the
       **exact** check names GitHub reports (expected `test (3.11)` and
       `test (3.12)` — the matrix produces no bare `test` check); task 5.6 needs
       the observed names, not guessed ones.
-- [ ] 5.5 Verify the CI gate actually fails on a coverage drop, not just on a
+- [x] 5.5 Verify the CI gate actually fails on a coverage drop, not just on a
       failing test: open a scratch pull request that deletes enough tests to push
       coverage below 85%, confirm both matrix jobs fail and the log attributes
       the failure to coverage rather than to a test error, then close it without
       merging.
-- [ ] 5.6 Apply the branch protection rule on `main` per design decision 9,
+- [x] 5.6 Apply the branch protection rule on `main` per design decision 9,
       requiring the check names observed in 5.4 and enabling *Require branches to
       be up to date before merging*. This is a repository-settings action against
       `realebi/dbridge` (`gh api` or the settings page) that needs repository
@@ -151,7 +151,8 @@ not modified and must keep passing throughout.
       apply a rule whose check names were guessed rather than taken from 5.4.
       Verify by re-opening the scratch pull request from 5.5 and confirming the
       merge is refused while the check is red.
-- [ ] 5.7 If 5.6 cannot be completed (no admin rights, or the user defers it),
+- [x] 5.7 Not applicable — 5.6 completed, so the contingency below did not
+      apply. Original text: if 5.6 cannot be completed (no admin rights, or the user defers it),
       record in the change's verification summary that the workflow is in place
       but not yet binding, and what remains to make it so. Do not mark 5.6 done
       on the strength of the workflow existing — the spec requires the check to
