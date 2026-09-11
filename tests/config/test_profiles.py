@@ -1,8 +1,11 @@
 """Unit tests for config/profiles.py and the getERD / refreshSchema handlers."""
+import sys
 import textwrap
+from pathlib import Path
 
 import pytest
 
+from dbridge.config import profiles
 from dbridge.config.profiles import (
     ProfileNotFoundError,
     delete_profile,
@@ -183,3 +186,67 @@ def test_non_table_config_is_normalized(tmp_path):
         config = []
     """))
     assert load_profiles(toml) == {"legacy": {"adapter": "sqlite", "config": {}}}
+
+
+# ── config directory resolution ───────────────────────────────────────────────
+# These exercise _config_dir/_profiles_path without ever reading or writing the
+# real ~/.config/dbridge: every case patches the environment or sys.platform.
+
+def test_config_dir_honours_xdg_config_home(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert profiles._config_dir() == tmp_path / "dbridge"
+
+
+def test_config_dir_falls_back_to_dot_config(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    assert profiles._config_dir() == tmp_path / ".config" / "dbridge"
+
+
+def test_config_dir_uses_appdata_on_windows(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    assert profiles._config_dir() == tmp_path / "dbridge"
+
+
+def test_config_dir_falls_back_to_home_on_windows_without_appdata(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    assert profiles._config_dir() == tmp_path / "dbridge"
+
+
+def test_profiles_path_is_connections_toml_in_the_config_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    assert profiles._profiles_path() == tmp_path / "dbridge" / "connections.toml"
+
+
+def test_default_path_functions_are_used_when_no_path_is_given(monkeypatch, tmp_path):
+    """load/save/delete with no explicit path go through _profiles_path()."""
+    toml = tmp_path / "connections.toml"
+    monkeypatch.setattr(profiles, "_profiles_path", lambda: toml)
+
+    assert load_profiles() == {}
+    save_profile("mem", "sqlite", {"uri": ":memory:"})
+    assert load_profiles() == {"mem": {"adapter": "sqlite", "config": {"uri": ":memory:"}}}
+    assert get_profile("mem")["adapter"] == "sqlite"
+    assert delete_profile("mem") is True
+    assert load_profiles() == {}
+
+
+def test_entry_without_an_adapter_is_skipped(tmp_path):
+    """A hand-edited file missing the adapter key must not yield a broken Profile."""
+    toml = tmp_path / "connections.toml"
+    toml.write_text(textwrap.dedent("""\
+        [connections.broken]
+        note = "no adapter here"
+        [connections.fine]
+        adapter = "sqlite"
+    """))
+    assert set(load_profiles(toml)) == {"fine"}

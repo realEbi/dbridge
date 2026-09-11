@@ -16,3 +16,5 @@ Port execution and introspection to DBAdapter, select a driver based on the exec
 ## Notes and references
 
 Inspect [parked PostgreSQL](../../src/dbridge/adapters/_parked/postgres.py). The earlier asyncpg suggestion is a candidate, not a current dependency decision.
+
+Coverage: the parked module is excluded from measurement via `omit` in [pyproject.toml](../../pyproject.toml) while it stays under `adapters/_parked/`. Porting it out of that directory re-includes it automatically, so this work must land with tests that keep the suite above the 85% floor — see [docs/development.md](../development.md).

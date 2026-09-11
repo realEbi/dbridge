@@ -1,0 +1,52 @@
+name: Test
+
+# The gate for the coverage floor in pyproject.toml. Runs on pull requests so a
+# regression blocks the merge, and on pushes to an integration branch so a change
+# arriving outside the pull-request path is still measured.
+#
+# pull_request carries no `branches:` filter on purpose. Filtering by base branch
+# means a pull request into any other branch silently skips the gate — and this
+# repository integrates into dbridge-2.0, not main. A coverage gate should guard
+# every pull request; there is no base branch where a regression is acceptable.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - dbridge-2.0
+
+permissions:
+  contents: read
+
+jobs:
+  # Do not add a `name:` here. Without it GitHub derives the check names
+  # "test (3.11)" and "test (3.12)", which are the names registered as required
+  # status checks on main. Renaming the job renames the checks and silently
+  # stops the protection rule from matching anything.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Both versions must report. With fail-fast a failure on 3.11 cancels
+      # 3.12, leaving a required check permanently pending rather than red.
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Run the server suite with coverage
+        # --python is explicit rather than relying on UV_PYTHON being exported,
+        # so the job cannot silently test the runner's default interpreter.
+        # The run fails when coverage drops below fail_under (85%).
+        run: >-
+          uv run --python ${{ matrix.python-version }} --group test
+          pytest --cov --cov-report=term

@@ -60,6 +60,9 @@ Relevant source/tests, dependencies, and questions to resolve before planning.
 - [008 - Expose the Session's SQL dialect to clients](008-session-dialect.md)
 - [018 - Offer columns after a SELECT comma](018-select-comma-completion.md)
 - [027 - Remove known unused imports](027-unused-imports.md)
+- [050 - Decide whether DspError has a purpose](050-unused-dsp-error.md)
+- [051 - Stop get_logger from stacking duplicate handlers](051-logger-handler-stacking.md)
+- [054 - Make the type checker pass](054-type-check-does-not-pass.md)
 - [028 - Show which Session will execute SQL](028-active-session-indicator.md)
 - [029 - Refresh schema without reconnecting the Profile](029-client-schema-refresh.md)
 - [048 - Select a Session's active database and schema](048-session-scope-selection.md)
@@ -76,6 +79,7 @@ Relevant source/tests, dependencies, and questions to resolve before planning.
 - [040 - Serve local clients over Unix sockets](040-unix-socket-transport.md)
 - [041 - Serve remote clients over TCP](041-tcp-transport.md)
 - [049 - Execute queries with bound parameters](049-query-parameters.md)
+- [052 - Survive a malformed or truncated protocol frame](052-truncated-frame-crashes-loop.md)
 
 ## Adapters and metadata
 
@@ -100,6 +104,7 @@ Relevant source/tests, dependencies, and questions to resolve before planning.
 - [030 - Resolve dbt models in completion](030-dbt-completion.md)
 - [032 - Expose structured EXPLAIN plans](032-explain-plans.md)
 - [044 - Introspect and complete SQL functions](044-function-completion.md)
+- [053 - Offer something useful for a bare SELECT](053-bare-select-offers-nothing.md)
 
 ## Clients and operations
 

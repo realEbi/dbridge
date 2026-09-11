@@ -1,6 +1,10 @@
 """Unit tests for core/completion.py — three contexts with a fake registry."""
 
-from dbridge.core.completion import complete
+from dbridge.core.completion import (
+    CompletionItem,
+    _extract_tables_from_sql,
+    complete,
+)
 
 TABLES = ["users", "orders", "products"]
 COLUMNS = {
@@ -125,3 +129,122 @@ def test_malformed_sql_does_not_raise():
 def test_truncated_sql_does_not_raise():
     items = _complete("SELECT id, name FR")
     assert isinstance(items, list)
+
+
+# ── CompletionItem defaults ───────────────────────────────────────────────────
+
+def test_completion_item_derives_insert_text_and_sort_key():
+    item = CompletionItem(label="Users", kind="table")
+    assert item.insert_text == "Users"
+    assert item.sort_key == "users"
+
+
+def test_completion_item_keeps_explicit_insert_text_and_sort_key():
+    """__post_init__ must not overwrite values the caller supplied."""
+    item = CompletionItem(
+        label="Users", kind="table", insert_text="\"Users\"", sort_key="zzz"
+    )
+    assert item.insert_text == "\"Users\""
+    assert item.sort_key == "zzz"
+
+
+# ── cursor offsets are UTF-8 byte offsets ─────────────────────────────────────
+
+def test_position_is_a_byte_offset_not_a_character_offset():
+    """'né' is 3 bytes; the byte offset after it must still classify as FROM."""
+    sql = "SELECT * FROM né"
+    items = _complete(sql, position=len(sql.encode("utf-8")))
+    assert {i["kind"] for i in items} == {"table"}
+
+
+def test_offset_splitting_a_code_point_does_not_raise():
+    """A split code point is dropped rather than raising (errors='ignore')."""
+    sql = "SELECT * FROM né"
+    # One byte into the two-byte 'é'.
+    items = _complete(sql, position=len(sql.encode("utf-8")) - 1)
+    assert {i["kind"] for i in items} == {"table"}
+
+
+def test_negative_position_is_clamped_to_the_start():
+    items = _complete("SELECT * FROM users", position=-10)
+    assert {i["kind"] for i in items} == {"keyword"}
+
+
+def test_position_past_the_end_is_clamped():
+    items = _complete("SELECT * FROM ", position=9999)
+    assert {i["kind"] for i in items} == {"table"}
+
+
+def test_non_integer_position_falls_back_to_the_whole_string():
+    items = _complete("SELECT * FROM ", position="not-a-number")
+    assert {i["kind"] for i in items} == {"table"}
+
+
+def test_none_position_means_end_of_string():
+    assert _complete("SELECT * FROM ", position=None) == _complete("SELECT * FROM ")
+
+
+# ── failures degrade to a usable result instead of raising ────────────────────
+
+def test_unparseable_sql_does_not_propagate():
+    """sqlglot raising inside table extraction must be swallowed.
+
+    "SELECT " classifies as a column context, but sqlglot cannot parse it, so no
+    table is in scope and the result is empty. Pins current behavior: a bare
+    SELECT offers nothing rather than falling back to keywords.
+    """
+    assert _complete("SELECT ") == []
+
+
+def test_unparseable_sql_outside_a_known_context_returns_keywords():
+    """"SELECT (((" matches neither context regex, so keywords are the fallback."""
+    items = _complete("SELECT ((( ")
+    assert {i["kind"] for i in items} == {"keyword"}
+
+
+def test_a_table_whose_columns_cannot_be_read_is_skipped():
+    """One failing table must not lose the other tables' columns."""
+    def get_columns(table):
+        if table == "orders":
+            raise RuntimeError("introspection failed")
+        return COLUMNS.get(table, [])
+
+    items = complete(
+        "SELECT  FROM users JOIN orders ON users.id = orders.user_id",
+        list_tables_fn=lambda: TABLES,
+        get_columns_fn=get_columns,
+        get_keywords_fn=lambda: KEYWORDS,
+        position=7,
+    )
+
+    labels = [i["label"] for i in items]
+    assert "name" in labels
+    assert "total" not in labels
+
+
+def test_failing_list_tables_falls_back_to_keywords():
+    """An adapter failure in a FROM position degrades to keywords, not an error."""
+    def list_tables():
+        raise RuntimeError("adapter down")
+
+    items = complete(
+        "SELECT * FROM ",
+        list_tables_fn=list_tables,
+        get_columns_fn=lambda t: [],
+        get_keywords_fn=lambda: KEYWORDS,
+    )
+
+    assert {i["kind"] for i in items} == {"keyword"}
+
+
+def test_table_extraction_swallows_a_parser_error():
+    """sqlglot raises on an empty statement; the helper must return [] not raise."""
+    assert _extract_tables_from_sql("") == []
+    assert _extract_tables_from_sql("   ") == []
+
+
+def test_table_extraction_finds_tables_in_from_and_join():
+    tables = _extract_tables_from_sql(
+        "SELECT * FROM users JOIN orders ON users.id = orders.user_id"
+    )
+    assert set(tables) == {"users", "orders"}

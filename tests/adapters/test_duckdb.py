@@ -2,6 +2,7 @@ import pytest
 
 from dbridge.adapters.duckdb import DuckDBAdapter
 from dbridge.adapters.registry import INSTALLED_ADAPTERS
+from dbridge.exceptions import AdapterConnectionError, AdapterQueryError
 
 
 @pytest.fixture
@@ -117,3 +118,114 @@ def test_get_table_schema_does_not_merge_same_named_tables(tmp_path):
     assert main_cols == ["a", "b"]
     assert other_cols == ["x"]
     a.disconnect()
+
+
+# ── connection and error mapping ──────────────────────────────────────────────
+
+def test_uri_defaults_to_in_memory():
+    """Unlike sqlite, duckdb has a usable default and needs no uri."""
+    assert DuckDBAdapter({}).uri == ":memory:"
+
+
+def test_unopenable_path_raises_adapter_connection_error(tmp_path):
+    """A driver failure is translated rather than leaking duckdb's own type."""
+    adapter = DuckDBAdapter({"uri": str(tmp_path / "no-such-dir" / "db.duckdb")})
+    with pytest.raises(AdapterConnectionError):
+        adapter.connect()
+
+
+def test_invalid_sql_raises_adapter_query_error(adapter):
+    with pytest.raises(AdapterQueryError):
+        adapter.execute("SELECT * FROM no_such_table")
+
+
+def test_syntax_error_raises_adapter_query_error(adapter):
+    with pytest.raises(AdapterQueryError):
+        adapter.execute("NOT VALID SQL")
+
+
+def test_disconnect_on_never_connected_adapter_is_a_noop():
+    DuckDBAdapter({"uri": ":memory:"}).disconnect()
+
+
+def test_disconnect_is_idempotent(adapter):
+    adapter.disconnect()
+    adapter.disconnect()
+    assert adapter.con is None
+
+
+# ── qualified-name scoping ────────────────────────────────────────────────────
+
+def test_get_table_schema_accepts_a_schema_qualified_name(adapter):
+    schema = adapter.get_table_schema("main.users")
+    assert [c.name for c in schema.columns] == ["id", "name", "score"]
+    assert schema.schema == "main"
+
+
+def test_get_table_schema_accepts_a_catalog_qualified_name(adapter):
+    """A three-part fqn filters on the catalog too, not just the table name."""
+    # duckdb attaches several catalogs (system, temp, and the database itself);
+    # an in-memory database lands in "memory", which is not list_databases()[0].
+    catalog = adapter.execute(
+        "SELECT table_catalog FROM information_schema.tables WHERE table_name='users'"
+    ).rows[0][0]
+
+    schema = adapter.get_table_schema(f"{catalog}.main.users")
+
+    assert [c.name for c in schema.columns] == ["id", "name", "score"]
+    assert schema.database == catalog
+    assert schema.schema == "main"
+
+
+def test_get_table_schema_with_a_wrong_catalog_returns_no_columns(adapter):
+    """Scoping must actually filter: a bogus catalog must not fall back to a
+    bare table_name match and return another catalog's columns."""
+    schema = adapter.get_table_schema("no_such_catalog.main.users")
+    assert schema.columns == []
+
+
+def test_list_schemas_separates_attached_catalogs(adapter):
+    """Scoping separates catalogs; unscoped mixes them together.
+
+    Complements the file-backed case above: every catalog carries
+    main/information_schema/pg_catalog, so a *distinct* schema in a second
+    attached catalog is what makes the scoping observable.
+    """
+    adapter.execute("ATTACH ':memory:' AS other")
+    adapter.execute("CREATE SCHEMA other.analytics")
+
+    assert "analytics" in adapter.list_schemas("other")
+    assert "analytics" not in adapter.list_schemas("memory")
+    # Unscoped returns every catalog's schemas merged — the reason the scoping
+    # argument exists at all.
+    assert "analytics" in adapter.list_schemas(None)
+
+
+def test_dialect_name(adapter):
+    assert adapter.dialect_name() == "duckdb"
+
+
+def test_get_keywords_returns_a_fresh_copy(adapter):
+    first = adapter.get_keywords()
+    assert "SELECT" in first
+
+    first.append("NOT_A_KEYWORD")
+    assert "NOT_A_KEYWORD" not in adapter.get_keywords()
+
+
+def test_list_tables_scoped_to_a_catalog(adapter):
+    """The database argument narrows table_catalog as well as table_schema."""
+    catalog = adapter.execute(
+        "SELECT table_catalog FROM information_schema.tables WHERE table_name='users'"
+    ).rows[0][0]
+
+    assert "users" in adapter.list_tables(database=catalog)
+    assert adapter.list_tables(database="no_such_catalog") == []
+
+
+def test_list_tables_scoped_to_a_schema(adapter):
+    adapter.execute("CREATE SCHEMA reporting")
+    adapter.execute("CREATE TABLE reporting.summary (id INTEGER)")
+
+    assert adapter.list_tables(schema="reporting") == ["summary"]
+    assert "summary" not in adapter.list_tables()
