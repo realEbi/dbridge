@@ -163,14 +163,14 @@ not modified and must keep passing throughout.
 - [x] 6.1 Add a backlog item for `DspError` in `protocol/errors.py` — defined but
       never raised or caught anywhere in the package, and the only reason that
       module is below 100%. Follow the template in
-      [docs/backlog/README.md](../../../docs/backlog/README.md), allocate the next
+      [docs/backlog/README.md](../../../../docs/backlog/README.md), allocate the next
       unused ID, set Repo `dbridge` and Status `deferred`, and cite the evidence.
       Link it from the index next to
-      [027](../../../docs/backlog/027-unused-imports.md).
+      [027](../../../../docs/backlog/027-unused-imports.md).
 - [x] 6.2 Note on backlog items
-      [019](../../../docs/backlog/019-mysql-adapter.md),
-      [020](../../../docs/backlog/020-postgres-adapter.md), and
-      [021](../../../docs/backlog/021-snowflake-adapter.md) that porting an
+      [019](../../../../docs/backlog/019-mysql-adapter.md),
+      [020](../../../../docs/backlog/020-postgres-adapter.md), and
+      [021](../../../../docs/backlog/021-snowflake-adapter.md) that porting an
       adapter out of `adapters/_parked/` brings it into the measured scope and
       must land with tests meeting the floor. Keep the item IDs and existing
       Status values unchanged.
@@ -183,9 +183,9 @@ not modified and must keep passing throughout.
 
 ## 7. Documentation
 
-Per the [AGENTS.md](../../../AGENTS.md#documentation-ownership) ownership table.
+Per the [AGENTS.md](../../../../AGENTS.md#documentation-ownership) ownership table.
 
-- [x] 7.1 Update [docs/development.md](../../../docs/development.md) — it owns
+- [x] 7.1 Update [docs/development.md](../../../../docs/development.md) — it owns
       workflow commands and verification: add the coverage commands (terminal and
       HTML report), state the measured scope and why parked adapters are
       excluded, and document the 85% floor and that a run below it fails. Rewrite
@@ -194,7 +194,7 @@ Per the [AGENTS.md](../../../AGENTS.md#documentation-ownership) ownership table.
       matrix, and state that the coverage checks are required for merging into
       `main`, naming which checks are required.
 - [x] 7.2 Update the *Engineering conventions* section of
-      [AGENTS.md](../../../AGENTS.md) where it names the suite command, so the
+      [AGENTS.md](../../../../AGENTS.md) where it names the suite command, so the
       coverage gate is discoverable from the routing document. Keep the *Custom
       Instructions* section byte-for-byte unchanged.
 - [x] 7.3 Confirm no other owned document needs an edit and say so explicitly in

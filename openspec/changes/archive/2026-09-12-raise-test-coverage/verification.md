@@ -1,6 +1,6 @@
 # Verification summary
 
-Per [AGENTS.md](../../../AGENTS.md) — "Keep a short verification summary with the
+Per [AGENTS.md](../../../../AGENTS.md) — "Keep a short verification summary with the
 change, distinguishing checks that passed, checks not run, and known failures."
 
 ## Re-scoped baseline (after section 1, before any new test)
@@ -47,8 +47,8 @@ left uncovered and recorded as backlog items rather than tested:
 
 | Module | Cover | Missing | Why not covered |
 |---|---|---|---|
-| `protocol/errors.py` | 79% | 14-16 | `DspError` is never raised or caught — [050](../../../docs/backlog/050-unused-dsp-error.md) |
-| `logging/__init__.py` | 90% | 13 | Unreachable: the `_loggers` cache is never written — [051](../../../docs/backlog/051-logger-handler-stacking.md) |
+| `protocol/errors.py` | 79% | 14-16 | `DspError` is never raised or caught — [050](../../../../docs/backlog/050-unused-dsp-error.md) |
+| `logging/__init__.py` | 90% | 13 | Unreachable: the `_loggers` cache is never written — [051](../../../../docs/backlog/051-logger-handler-stacking.md) |
 
 A test for either would assert that dead code constructs correctly, which proves
 nothing. Covering them is the wrong fix; deciding their fate is the right one.
@@ -72,13 +72,13 @@ nothing. Covering them is the wrong fix; deciding their fate is the right one.
 
 - **ruff, 2 × F401**: `operator.mul` in `_parked/mysql.py`, `ForeignKey` in
   `adapters/duckdb.py`. Both are exactly what
-  [027](../../../docs/backlog/027-unused-imports.md) already records. Not fixed
+  [027](../../../../docs/backlog/027-unused-imports.md) already records. Not fixed
   here — that item owns them, and fixing them would widen this change.
 - **mypy, 21 errors in 5 files**: 19 in parked adapters (missing driver stubs
   plus imports of modules that no longer exist), 1 for the `_loggers`
   annotation, 1 for `sqlite3.connect` receiving `str | None`. `tests/` is clean
   at 0 errors. Previously unrecorded, now
-  [054](../../../docs/backlog/054-type-check-does-not-pass.md).
+  [054](../../../../docs/backlog/054-type-check-does-not-pass.md).
 
 Effect on verification: neither checker was clean before this change, so neither
 provides a regression signal for it. The suite and the coverage gate do.
@@ -90,16 +90,16 @@ came out of writing the tests; each is pinned by a test asserting *current*
 behavior, with a comment saying so, so the backlog item is actionable and the
 test changes with the fix:
 
-- **[051](../../../docs/backlog/051-logger-handler-stacking.md)** — `get_logger`
+- **[051](../../../../docs/backlog/051-logger-handler-stacking.md)** — `get_logger`
   declares a `_loggers` cache and never writes to it. Every call adds another
   `StreamHandler` to the same Logger, and `DBAdapter.__init__` calls it, so each
   Session created duplicates the server's log output once more. Measured: five
   adapters → five handlers.
-- **[052](../../../docs/backlog/052-truncated-frame-crashes-loop.md)** — a frame
+- **[052](../../../../docs/backlog/052-truncated-frame-crashes-loop.md)** — a frame
   whose body is shorter than its `Content-Length` raises `JSONDecodeError` out of
   `read_message`, through `serve`, killing the server. `PARSE_ERROR` (-32700) is
   defined for this and never emitted.
-- **[053](../../../docs/backlog/053-bare-select-offers-nothing.md)** — completion
+- **[053](../../../../docs/backlog/053-bare-select-offers-nothing.md)** — completion
   for a bare `"SELECT "` returns an empty list rather than falling through to
   keywords, so the more common input behaves worse than a malformed one.
 
@@ -110,15 +110,15 @@ without raising. Both are noted where they mattered.
 
 ## Documentation
 
-Updated per the [AGENTS.md](../../../AGENTS.md#documentation-ownership) table:
+Updated per the [AGENTS.md](../../../../AGENTS.md#documentation-ownership) table:
 
-- **[docs/development.md](../../../docs/development.md)** — new *Coverage*
+- **[docs/development.md](../../../../docs/development.md)** — new *Coverage*
   section (commands, scope, floor, the subprocess caveat); *CI and release*
   rewritten for the new workflow and the required check names.
-- **[AGENTS.md](../../../AGENTS.md)** — *Engineering conventions* gained the
+- **[AGENTS.md](../../../../AGENTS.md)** — *Engineering conventions* gained the
   coverage rule and the gated command. *Custom Instructions* left byte-for-byte
   unchanged.
-- **[docs/backlog/](../../../docs/backlog/README.md)** — items 050–054 added and
+- **[docs/backlog/](../../../../docs/backlog/README.md)** — items 050–054 added and
   indexed; 019/020/021 annotated with the obligation that porting a parked
   adapter brings it into the measured scope.
 
