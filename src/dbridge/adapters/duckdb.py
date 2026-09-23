@@ -6,8 +6,10 @@ from dbridge.adapters.base import (
     ColumnDef,
     DBAdapter,
     QueryResult,
+    TableRef,
     TableSchema,
 )
+from dbridge.adapters.identifiers import quote_identifier
 from dbridge.exceptions import AdapterConnectionError, AdapterQueryError
 
 _DUCKDB_KEYWORDS = [
@@ -96,41 +98,41 @@ class DuckDBAdapter(DBAdapter):
             )
         return [r[0] for r in rel.fetchall()]
 
-    def get_table_schema(self, fqn: str) -> TableSchema:
-        # fqn may be "table", "schema.table", or "catalog.schema.table". Filter
-        # on whatever was supplied: matching on table_name alone would merge the
-        # columns of same-named tables in different schemas.
-        parts = fqn.split(".")
-        table = parts[-1]
-        schema = parts[-2] if len(parts) >= 2 else None
-        catalog = parts[-3] if len(parts) >= 3 else None
-
-        where = ["table_name=?"]
-        params: list[str] = [table]
-        if schema is not None:
-            where.append("table_schema=?")
-            params.append(schema)
-        if catalog is not None:
-            where.append("table_catalog=?")
-            params.append(catalog)
-
-        rel = self._cur().execute(
-            "SELECT column_name, data_type, is_nullable "
-            "FROM information_schema.columns "
-            f"WHERE {' AND '.join(where)} ORDER BY ordinal_position",  # noqa: S608
-            params,
-        )
-        columns = [
-            ColumnDef(
-                name=name,
-                data_type=dtype,
-                nullable=(nullable == "YES"),
+    def get_table_schema(self, fqn: str | TableRef) -> TableSchema:
+        if isinstance(fqn, TableRef):
+            table, schema, catalog = fqn.name, fqn.schema, fqn.database
+        else:
+            parts = fqn.split(".")
+            table = parts[-1]
+            schema = parts[-2] if len(parts) >= 2 else None
+            catalog = parts[-3] if len(parts) >= 3 else None
+        try:
+            if schema is None or catalog is None:
+                current = self._cur().execute(
+                    "SELECT current_database(), current_schema()"
+                ).fetchone()
+                assert current is not None, "current database/schema query returned no row"
+                current_catalog, current_schema = current
+                schema = schema or current_schema
+                catalog = catalog or current_catalog
+            rel = self._cur().execute(
+                "SELECT column_name, data_type, is_nullable "
+                "FROM information_schema.columns "
+                "WHERE table_name=? AND table_schema=? AND table_catalog=? "
+                "ORDER BY ordinal_position",
+                [table, schema, catalog],
             )
-            for name, dtype, nullable in rel.fetchall()
-        ]
+            columns = [
+                ColumnDef(name=name, data_type=dtype, nullable=(nullable == "YES"))
+                for name, dtype, nullable in rel.fetchall()
+            ]
+        except Exception as e:
+            raise AdapterQueryError(str(e)) from e
+        identifier = ".".join(quote_identifier(part) for part in (catalog, schema, table))
         return TableSchema(
-            name=table, schema=schema or "main", database=catalog,
+            name=table, schema=schema, database=catalog,
             columns=columns, primary_keys=[], foreign_keys=[],
+            sql_identifier=identifier if columns else None,
         )
 
     def dialect_name(self) -> str:

@@ -1,5 +1,6 @@
 from dataclasses import asdict
 
+from dbridge.adapters.base import TableRef
 from dbridge.config.profiles import delete_profile, get_profile, load_profiles, save_profile
 from dbridge.config.settings import settings
 from dbridge.core import executor
@@ -53,9 +54,24 @@ class Engine:
         self.sessions.get(session_id)
         return self._registries[session_id].list_tables(database, schema)
 
-    def get_table_schema(self, session_id: str, fqn: str) -> dict:
+    def get_table_schema(self, session_id: str, fqn: str, table: dict | None = None) -> dict:
         self.sessions.get(session_id)
-        return asdict(self._registries[session_id].get_table_schema(fqn))
+        identity: str | TableRef = fqn
+        if table is not None:
+            if (
+                not isinstance(table, dict)
+                or not isinstance(table.get("name"), str)
+                or not table["name"]
+                or any(
+                    value is not None and (not isinstance(value, str) or not value)
+                    for value in (table.get("database"), table.get("schema"))
+                )
+            ):
+                raise InvalidRequestError(
+                    "table requires a nonempty string name and optional string database/schema"
+                )
+            identity = TableRef(table["name"], table.get("database"), table.get("schema"))
+        return asdict(self._registries[session_id].get_table_schema(identity))
 
     def get_erd(self, session_id: str) -> dict:
         self.sessions.get(session_id)

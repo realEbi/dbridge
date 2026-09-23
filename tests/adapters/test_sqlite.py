@@ -128,9 +128,9 @@ def test_list_databases_is_the_single_namespace(adapter):
     assert adapter.list_databases() == ["main"]
 
 
-def test_list_schemas_is_the_single_namespace(adapter):
+def test_list_schemas_matches_the_requested_namespace(adapter):
     assert adapter.list_schemas() == ["main"]
-    assert adapter.list_schemas("anything") == ["main"]
+    assert adapter.list_schemas("anything") == []
 
 
 def test_dialect_name(adapter):

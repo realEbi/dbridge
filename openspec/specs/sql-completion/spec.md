@@ -14,8 +14,8 @@ SELECT scope when an unquoted qualifier before the cursor refers to that table's
 alias, or its name when unaliased. This SHALL work in SELECT expressions including
 after commas and in WHERE and JOIN ON expressions for SQLite and DuckDB Sessions.
 Alias matching and optional column-prefix filtering SHALL be case-insensitive.
-Physical source lookup SHALL retain schema/catalog qualifiers for Adapters that
-support them; SQLite attached-database introspection remains an Adapter limitation.
+Physical source lookup SHALL retain schema/catalog qualifiers, including SQLite
+attached database namespaces and DuckDB catalog/schema scopes.
 
 #### Scenario: Complete either selected product column
 - **WHEN** SQL is `SELECT p.name, p.category FROM products p LIMIT 100` and the
@@ -37,6 +37,10 @@ support them; SQLite attached-database introspection remains an Adapter limitati
 - **WHEN** two DuckDB schemas contain products with different columns and the
   current query selects one explicitly as p
 - **THEN** qualified completion returns only that schema's product columns
+
+#### Scenario: SQLite attached database source
+- **WHEN** products exists in main and an attached SQLite namespace and the query selects the attached table as p
+- **THEN** qualified completion returns only the attached table's columns
 
 ### Requirement: Preserve scope and tolerate unresolved SQL
 
