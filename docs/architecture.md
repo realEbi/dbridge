@@ -85,9 +85,19 @@ implemented.
 ## Schema browsing and completion
 
 Each Session has an in-memory TTL cache (default 60 seconds) for `listTables` and
-`getTableSchema`, keyed by their arguments. `refreshSchema` clears it. Database
+`getTableSchema`, keyed by their arguments (including literal structured table identity). `refreshSchema` clears it. Database
 and schema listings bypass this cache; query execution does not automatically
 invalidate it after DDL. There is no persistent or shared cache.
+
+TableSchema includes an Adapter-owned `sql_identifier`: double-quoted
+schema/table components for SQLite, catalog/schema/table for DuckDB. The additive
+`getTableSchema.table` object carries raw name/database/schema components and takes
+precedence over the legacy dot-separated fqn; listTables continues returning names.
+The registry uses an immutable TableRef as its structured cache key. DuckDB
+unscoped metadata uses its current catalog/schema instead of combining same-named
+tables. SQLite listings and metadata honor attached namespaces without changing
+the existing redundant database/schema hierarchy. Unresolved tables return a null
+identifier. Metadata failures remain errors, not permission to use a bare name.
 
 SQLite reports column metadata, primary keys, and foreign keys. DuckDB reports
 columns but currently returns empty primary/foreign key lists. `getERD` returns

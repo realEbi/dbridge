@@ -83,7 +83,7 @@ All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` header).
 | `dbridge/listDatabases` | `session_id` | List databases |
 | `dbridge/listSchemas` | `session_id`, `database?` | List schemas |
 | `dbridge/listTables` | `session_id`, `database?`, `schema?` | List tables |
-| `dbridge/getTableSchema` | `session_id`, `fqn` | Column/PK/FK info |
+| `dbridge/getTableSchema` | `session_id`, `fqn`, `table?` | Column/PK/FK info and executable `sql_identifier` |
 | `dbridge/complete` | `session_id`, `sql`, `position?` | SQL completion items; `position` is the cursor's byte offset into `sql` (default: end) |
 | `dbridge/getERD` | `session_id` | ERD placeholder |
 | `dbridge/refreshSchema` | `session_id` | Clear schema cache |
@@ -92,6 +92,19 @@ All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` header).
 | `dbridge/deleteProfile` | `name` | Remove a profile → `{ok}` (false if absent) |
 
 **Supported adapters:** `sqlite`, `duckdb`
+
+`getTableSchema` adds `sql_identifier` for generated SQL: SQLite returns a quoted
+schema/table pair and DuckDB a quoted catalog/schema/table triple. Embedded double
+quotes are escaped. A missing table returns `sql_identifier: null`; clients should
+not generate a query from that result. Existing `listTables` results remain names.
+
+For exact identity, additionally pass literal components in
+`table: {"name": "order.items", "database": "main", "schema": "main"}`.
+This object takes precedence over the required legacy `fqn`; its name is not split
+on dots. Omit optional scopes to use SQLite main or DuckDB's current catalog/schema.
+Existing fqn-only callers retain the dot-separated form, which cannot distinguish
+literal dots inside a name. SQLite listings and scoped metadata include attached
+database namespaces; its database/schema tree levels still describe one namespace.
 
 SQL completion supports unquoted physical-table qualifiers in the current SELECT
 scope. For `SELECT p.name, p.category FROM products p LIMIT 100`, send the full

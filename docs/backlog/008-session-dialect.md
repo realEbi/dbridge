@@ -16,3 +16,7 @@ Expose the dialect, potentially alongside session_id in the connect response, wh
 ## Notes and references
 
 Inspect [Engine.connect](../../src/dbridge/core/engine.py) and [DBAdapter](../../src/dbridge/adapters/base.py). Related: [qualified identifiers](002-qualified-identifiers.md).
+
+Identifier generation in [002](002-qualified-identifiers.md) now uses server-owned
+SQL identifiers without exposing a dialect field. This item remains deferred for
+client behaviors that actually need dialect information.

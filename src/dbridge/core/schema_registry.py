@@ -1,6 +1,6 @@
 import time
 
-from dbridge.adapters.base import DBAdapter, TableSchema
+from dbridge.adapters.base import DBAdapter, TableRef, TableSchema
 
 
 class SchemaRegistry:
@@ -26,7 +26,7 @@ class SchemaRegistry:
             lambda: self._adapter.list_tables(database, schema),
         )
 
-    def get_table_schema(self, fqn: str) -> TableSchema:
+    def get_table_schema(self, fqn: str | TableRef) -> TableSchema:
         return self._get(("schema", fqn), lambda: self._adapter.get_table_schema(fqn))
 
     def refresh(self) -> None:

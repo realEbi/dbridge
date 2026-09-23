@@ -31,7 +31,6 @@ Make the existing server/client path predictable: target the right Session and
 table, preserve Profiles, refresh metadata, and execute the intended statement.
 
 Key work includes [Profile renames](backlog/001-profile-rename.md),
-[qualified identifiers](backlog/002-qualified-identifiers.md),
 [database hierarchies](backlog/003-database-hierarchy.md),
 [cache coverage](backlog/004-introspection-cache-coverage.md),
 [DuckDB constraints](backlog/005-duckdb-constraints.md),
@@ -44,7 +43,11 @@ cross-repository integration when a user-visible flow spans both.
 
 Local verification tooling now provides `make manual-prepare` for reusable sample
 databases and `make test` / `make test-cov` for automated checks. See the
-[manual guide](manual-testing-guide.md). The daily-use outcomes above remain open.
+[manual guide](manual-testing-guide.md). Generated table queries now use server-provided quoted identifiers, preserving
+SQLite namespaces and DuckDB catalog/schema identity, including literal dots and
+quotes. See [002](backlog/002-qualified-identifiers.md) for both repository changes.
+The remaining daily-use outcomes above remain open; dialect reporting and hierarchy
+presentation are still separate work.
 
 ## 2. Responsive queries and larger results
 

@@ -28,7 +28,9 @@ class Dispatcher:
             "dbridge/listTables": lambda p: engine.list_tables(
                 p["session_id"], p.get("database"), p.get("schema")
             ),
-            "dbridge/getTableSchema": lambda p: engine.get_table_schema(p["session_id"], p["fqn"]),
+            "dbridge/getTableSchema": lambda p: engine.get_table_schema(
+                p["session_id"], p["fqn"], p.get("table")
+            ),
             "dbridge/complete": lambda p: engine.complete(
                 p["session_id"], p["sql"], p.get("position")
             ),

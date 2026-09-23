@@ -20,6 +20,13 @@ class ForeignKey:
     referenced_column: str
 
 
+@dataclass(frozen=True)
+class TableRef:
+    name: str
+    database: str | None = None
+    schema: str | None = None
+
+
 @dataclass
 class TableSchema:
     name: str
@@ -28,6 +35,7 @@ class TableSchema:
     columns: list[ColumnDef] = field(default_factory=list)
     primary_keys: list[str] = field(default_factory=list)
     foreign_keys: list[ForeignKey] = field(default_factory=list)
+    sql_identifier: str | None = None
 
 
 @dataclass
@@ -67,7 +75,7 @@ class DBAdapter(ABC):
     ) -> list[str]: ...
 
     @abstractmethod
-    def get_table_schema(self, fqn: str) -> TableSchema: ...
+    def get_table_schema(self, fqn: str | TableRef) -> TableSchema: ...
 
     @abstractmethod
     def dialect_name(self) -> str: ...

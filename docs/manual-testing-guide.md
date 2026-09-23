@@ -59,6 +59,7 @@ Connect to each sample database and try these checks in your client:
 | Run `SELECT * FROM order_items ORDER BY id` | With the default 100-row cap, 100 rows and a truncation warning. |
 | Request completion after `SELECT * FROM ` | Sample table names are offered. |
 | In `SELECT p.name, p.category FROM products p LIMIT 100`, put the cursor after either `p.` and request completion | `id`, `sku`, `name`, `category`, `price`, and `discontinued` are offered. Selecting `name` leaves a single `p.name`. Typing `p.na` narrows the suggestions to `name`. |
+| Enter `products` in the updated Neovim explorer | Generated SQL includes `"main"."products"` for SQLite or the full quoted catalog/schema/table for DuckDB, and shows the selected table. |
 | Inspect `orders` metadata | SQLite reports its primary key and the foreign key to `customers`. DuckDB constraint extraction remains unimplemented. |
 
 For completion in the middle of SQL, the client must send the full statement and
@@ -71,6 +72,16 @@ automatically requests suggestions on `.` when configured with nvim-cmp; use bot
 updated repositories, restart Neovim, and reconnect the Profile for this check.
 The server supports physical-table qualifiers in the current SELECT; CTE/derived
 columns and outer correlated references are still deferred.
+
+To check literal names on the reusable samples, run
+`CREATE TABLE "order.items" (label TEXT)` and
+`INSERT INTO "order.items" VALUES ('selected literal table')` as separate queries.
+Refresh the explorer and enter that table: the generated identifier must keep
+`"order.items"` as one component and the result must contain the inserted label.
+Run `DROP TABLE "order.items"` and refresh afterward, or reset the samples with
+`make manual-prepare` after disconnecting. Metadata errors must be shown without
+executing a guessed bare-name query. Older clients do not use the new identifier;
+older servers retain the client's documented bare-name compatibility behavior.
 
 Disconnect your Sessions when finished. The sample files remain available for
 later use; rerun `make manual-prepare` when you want to reset them. See the
