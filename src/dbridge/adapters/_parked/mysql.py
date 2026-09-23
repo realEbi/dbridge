@@ -1,5 +1,3 @@
-from operator import mul
-
 import pandas as pd
 
 from dbridge.adapters.capabilities import CapabilityEnums

@@ -108,6 +108,14 @@ path still uses whole-statement table extraction. CTE/derived-table projections,
 outer correlated references, quoted qualifier syntax, unqualified SELECT commas,
 values, and richer ranking remain deferred. See the [backlog](backlog/README.md).
 
+## Diagnostics
+
+Named server loggers reuse their existing direct handlers. If none is configured,
+logger setup installs one console handler writing to stderr, preserving stdout
+for protocol frames. Repeated Adapter construction does not multiply handlers or
+diagnostic lines. Embedding applications retain handlers they configure explicitly;
+the requested logger level can change without adding a new console handler.
+
 ## Verification evidence
 
 Tests cover [stdio framing](../tests/protocol/test_framing.py),

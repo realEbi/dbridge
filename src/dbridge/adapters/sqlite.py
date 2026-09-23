@@ -24,9 +24,10 @@ class SqliteAdapter(DBAdapter):
 
     def __init__(self, config: dict[str, str]) -> None:
         super().__init__(config)
-        self.uri = self.config.get("uri")
-        if not self.uri:
+        uri = self.config.get("uri")
+        if not uri:
             raise AdapterConnectionError("sqlite adapter requires a 'uri' config key")
+        self.uri = uri
         self.con: sqlite3.Connection | None = None
 
     def connect(self) -> None:
