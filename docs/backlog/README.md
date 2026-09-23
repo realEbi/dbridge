@@ -98,6 +98,7 @@ Relevant source/tests, dependencies, and questions to resolve before planning.
 
 - [011 - Return an actual entity-relationship graph](011-erd-extraction.md)
 - [015 - Complete alias-qualified columns](015-alias-completion.md)
+- [055 - Complete derived and correlated query sources](055-completion-derived-and-correlated-sources.md)
 - [016 - Complete values and enums in SQL predicates](016-value-completion.md)
 - [017 - Rank and filter completion suggestions](017-completion-ranking.md)
 - [025 - Support custom completion providers](025-completion-providers.md)

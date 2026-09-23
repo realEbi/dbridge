@@ -1,5 +1,8 @@
+import os
 import subprocess
 import sys
+
+import pytest
 
 from dbridge.protocol.transport.stdio import read_message, write_message
 
@@ -9,12 +12,26 @@ def _request(proc, payload):
     return read_message(proc.stdout)
 
 
-def _spawn():
+def _spawn(env=None):
     return subprocess.Popen(
         [sys.executable, "-m", "dbridge.server"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
+        env=env,
     )
+
+
+def _stop(proc):
+    try:
+        proc.stdin.close()
+    finally:
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        finally:
+            proc.stdout.close()
 
 
 def test_e2e_connect_execute_disconnect():
@@ -60,8 +77,7 @@ def test_e2e_connect_execute_disconnect():
         })
         assert resp["result"]["ok"] is True
     finally:
-        proc.stdin.close()
-        proc.wait(timeout=5)
+        _stop(proc)
 
 
 def test_e2e_complete():
@@ -120,8 +136,66 @@ def test_e2e_complete():
         items = resp["result"]
         assert any(i["kind"] == "keyword" for i in items)
     finally:
-        proc.stdin.close()
-        proc.wait(timeout=5)
+        _stop(proc)
+
+
+@pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
+def test_e2e_complete_alias_columns(adapter, tmp_path):
+    env = os.environ.copy()
+    env.update(XDG_CONFIG_HOME=str(tmp_path), APPDATA=str(tmp_path))
+    proc = _spawn(env=env)
+    request_id = 0
+
+    def rpc(method, **params):
+        nonlocal request_id
+        request_id += 1
+        response = _request(proc, {
+            "jsonrpc": "2.0", "id": request_id, "method": "dbridge/" + method,
+            "params": params,
+        })
+        assert response is not None, "server exited before responding"
+        assert response["id"] == request_id
+        assert "error" not in response, response.get("error")
+        return response["result"]
+
+    try:
+        session_id = rpc("connect", adapter=adapter, config={"uri": ":memory:"})[
+            "session_id"
+        ]
+        rpc(
+            "execute", session_id=session_id,
+            sql="CREATE TABLE products (id INTEGER, name TEXT, category TEXT)",
+        )
+        rpc(
+            "execute", session_id=session_id,
+            sql="CREATE TABLE orders (id INTEGER, product_id INTEGER, order_reference TEXT)",
+        )
+        cases = [
+            ("SELECT p.|name, p.category FROM products p LIMIT 100",
+             ["id", "name", "category"]),
+            ("SELECT p.name, p.|category FROM products p LIMIT 100",
+             ["id", "name", "category"]),
+            ("SELECT p.name, p.ca|tegory FROM products p LIMIT 100", ["category"]),
+            ("SELECT p.|name FROM products p JOIN orders o ON p.id = o.product_id",
+             ["id", "name", "category"]),
+            ("SELECT p.name FROM products p JOIN orders o ON p.id = o.|product_id",
+             ["id", "product_id", "order_reference"]),
+            ("SELECT 'café', p.|name FROM products p", ["id", "name", "category"]),
+        ]
+        for marked_sql, columns in cases:
+            before, _, after = marked_sql.partition("|")
+            items = rpc(
+                "complete", session_id=session_id, sql=before + after,
+                position=len(before.encode("utf-8")),
+            )
+            assert [item["label"] for item in items] == columns, marked_sql
+            assert {item["kind"] for item in items} == {"column"}, marked_sql
+            assert [item["insert_text"] for item in items] == columns, marked_sql
+
+        assert rpc("disconnect", session_id=session_id) == {"ok": True}
+    finally:
+        _stop(proc)
+    assert proc.returncode == 0
 
 
 def test_e2e_result_truncation():
@@ -146,5 +220,4 @@ def test_e2e_result_truncation():
         assert resp["result"]["row_count"] == 100
         assert any("truncated" in w for w in resp["result"]["warnings"])
     finally:
-        proc.stdin.close()
-        proc.wait(timeout=5)
+        _stop(proc)

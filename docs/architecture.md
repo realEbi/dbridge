@@ -93,12 +93,20 @@ SQLite reports column metadata, primary keys, and foreign keys. DuckDB reports
 columns but currently returns empty primary/foreign key lists. `getERD` returns
 `{"status": "not_implemented", "tables": [...]}`.
 
-Completion classifies the text before an optional UTF-8 byte offset `position`,
-which defaults to the end of `sql`. It parses the full SQL with sqlglot to find
-tables in scope. FROM/JOIN contexts offer tables; SELECT/WHERE/AND/OR/ON contexts
-offer columns; other contexts fall back to dialect keywords. It tolerates partial
-SQL, but alias-qualified columns, values, richer ranking, and some SELECT contexts
-are deferred. See the [backlog](backlog/README.md).
+Completion uses an optional UTF-8 byte offset `position`, which defaults to the
+end of `sql`. Unquoted qualified column positions such as `p.` and `p.na` are
+resolved against physical FROM/JOIN sources in the cursor's SELECT scope. A
+temporary cursor marker lets sqlglot parse the unfinished column without losing
+the following FROM clause. Resolution preserves nested-query and statement
+boundaries; returned insertion text is the bare column name. Unresolvable
+qualifiers and metadata failures return no qualified suggestions.
+
+The existing unqualified path classifies the text before the cursor and extracts
+tables from full SQL: FROM/JOIN contexts offer tables, SELECT/WHERE/AND/OR/ON
+contexts offer columns, and other contexts fall back to dialect keywords. This
+path still uses whole-statement table extraction. CTE/derived-table projections,
+outer correlated references, quoted qualifier syntax, unqualified SELECT commas,
+values, and richer ranking remain deferred. See the [backlog](backlog/README.md).
 
 ## Verification evidence
 
