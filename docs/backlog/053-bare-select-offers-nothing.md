@@ -1,38 +1,31 @@
 # 053 - Offer something useful for a bare SELECT
 
 - Repo: dbridge
-- Status: deferred
-- Change: none
+- Status: done
+- Change: [complete-unqualified-select-targets](../../openspec/changes/archive/2026-09-23-complete-unqualified-select-targets/)
 - Origin: Observed while raising test coverage ([archived change](../../openspec/changes/archive/2026-09-12-raise-test-coverage/proposal.md)).
 
 ## Problem / opportunity
 
-Completion for `"SELECT "` returns an empty list. The prefix classifies as a
-column context, so [completion.py](../../src/dbridge/core/completion.py) tries to
-resolve tables in scope; `sqlglot` cannot parse a bare `SELECT`, the exception is
-swallowed, no table is in scope, and the column branch returns `[]` without
-falling through to the keyword fallback.
-
-A user typing `SELECT ` before writing a `FROM` clause therefore gets no
-suggestions at all, rather than keywords or the full table/column set. By
-contrast `"SELECT ((( "` matches neither context regex and does return keywords,
-so the emptier and more common input is the one that behaves worse.
-
-Evidence: `tests/core/test_completion.py::test_unparseable_sql_does_not_propagate`
-asserts the current empty result.
+Before this change, completion for `SELECT ` returned an empty list. The legacy
+SELECT column branch found no tables and returned without reaching the existing
+dialect-keyword fallback. This interrupted editing before writing a FROM clause.
 
 ## Desired outcome
 
-Decide what a column context with no resolvable tables should return. Falling
-back to keywords is the smallest change and matches what the surrounding code
-already does elsewhere; offering every table's columns is more useful but noisier
-and needs a ranking story. Either way, an empty list is the least useful of the
-three options.
+Offer a useful deterministic fallback when no physical source resolves without
+scanning all database columns or depending on an unimplemented ranking policy.
+
+## Resolution
+
+A bare `SELECT `, a source-free later SELECT target, or a SELECT containing only
+unsupported CTE/derived sources now offers the Session's dialect keywords. The
+server does not list tables or introspect unrelated columns for this fallback.
+Known physical sources with no matching prefix or unavailable metadata still
+return no columns. Core and real SQLite/DuckDB Engine/stdio tests verify this.
 
 ## Notes and references
 
-[core/completion.py](../../src/dbridge/core/completion.py) — the `_SELECT_WHERE_RE`
-branch returns `columns` unconditionally, never reaching the keyword fallback
-below it. Related: [018](018-select-comma-completion.md) (columns after a SELECT
-comma), [017](017-completion-ranking.md) (ranking, which a broader fallback would
-need).
+See [completion](../../src/dbridge/core/completion.py), [SELECT target completion](018-select-comma-completion.md),
+and the remaining [ranking](017-completion-ranking.md) and
+[projected-source inference](055-completion-derived-and-correlated-sources.md) work.

@@ -110,9 +110,12 @@ SQL completion supports unquoted physical-table qualifiers in the current SELECT
 scope. For `SELECT p.name, p.category FROM products p LIMIT 100`, send the full
 SQL and a cursor `position` immediately after either `p.` to receive product
 columns. Typing `p.na` filters to matching names; insertion text is the column
-name alone. CTE/derived-table columns, outer correlated references, and broader
-unqualified SELECT-list completion remain deferred. See the
-[manual guide](docs/manual-testing-guide.md) for an interactive check.
+name alone. Unqualified SELECT targets also offer columns from physical sources
+in that SELECT, including after commas and inside expressions; `SELECT id, na`
+before `FROM products` filters to `name`. A bare `SELECT ` or a SELECT without a
+resolvable physical source offers dialect keywords. CTE/derived-table columns and
+outer correlated references remain deferred. See the
+[manual guide](docs/manual-testing-guide.md) for interactive checks.
 
 **Environment variables** (prefix `dbridge_`):
 
