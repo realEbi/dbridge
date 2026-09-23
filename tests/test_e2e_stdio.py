@@ -221,3 +221,66 @@ def test_e2e_result_truncation():
         assert any("truncated" in w for w in resp["result"]["warnings"])
     finally:
         _stop(proc)
+
+
+@pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
+def test_e2e_complete_unqualified_select(adapter, tmp_path):
+    env = os.environ.copy()
+    env.update(XDG_CONFIG_HOME=str(tmp_path), APPDATA=str(tmp_path))
+    proc = _spawn(env=env)
+    request_id = 0
+
+    def rpc(method, **params):
+        nonlocal request_id
+        request_id += 1
+        response = _request(proc, {
+            "jsonrpc": "2.0", "id": request_id, "method": "dbridge/" + method,
+            "params": params,
+        })
+        assert response is not None, "server exited before responding"
+        assert response["id"] == request_id
+        assert "error" not in response, response.get("error")
+        return response["result"]
+
+    try:
+        session_id = rpc("connect", adapter=adapter, config={"uri": ":memory:"})[
+            "session_id"
+        ]
+        rpc(
+            "execute", session_id=session_id,
+            sql="CREATE TABLE products (id INTEGER, name TEXT, category TEXT)",
+        )
+        rpc(
+            "execute", session_id=session_id,
+            sql="CREATE TABLE orders (id INTEGER, product_id INTEGER, order_reference TEXT)",
+        )
+        for marked_sql, columns in [
+            ("SELECT id, | FROM products", ["id", "name", "category"]),
+            ("SELECT id, na|me FROM products", ["name"]),
+            ("SELECT 'café ☕',\n COALESCE(ca|tegory, '') FROM products", ["category"]),
+            (
+                "SELECT (SELECT | FROM orders) FROM products",
+                ["id", "product_id", "order_reference"],
+            ),
+            (
+                "SELECT id FROM products; SELECT | FROM orders",
+                ["id", "product_id", "order_reference"],
+            ),
+        ]:
+            before, after = marked_sql.split("|")
+            items = rpc(
+                "complete", session_id=session_id, sql=before + after,
+                position=len(before.encode("utf-8")),
+            )
+            assert [item["label"] for item in items] == columns, marked_sql
+            assert [item["insert_text"] for item in items] == columns, marked_sql
+            assert {item["kind"] for item in items} == {"column"}, marked_sql
+
+        for sql in ["SELECT ", "SELECT id, "]:
+            items = rpc("complete", session_id=session_id, sql=sql)
+            assert {item["kind"] for item in items} == {"keyword"}
+            assert "FROM" in [item["label"] for item in items]
+        assert rpc("disconnect", session_id=session_id) == {"ok": True}
+    finally:
+        _stop(proc)
+    assert proc.returncode == 0

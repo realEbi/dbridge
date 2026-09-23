@@ -59,6 +59,8 @@ Connect to each sample database and try these checks in your client:
 | Run `SELECT * FROM order_items ORDER BY id` | With the default 100-row cap, 100 rows and a truncation warning. |
 | Request completion after `SELECT * FROM ` | Sample table names are offered. |
 | In `SELECT p.name, p.category FROM products p LIMIT 100`, put the cursor after either `p.` and request completion | `id`, `sku`, `name`, `category`, `price`, and `discontinued` are offered. Selecting `name` leaves a single `p.name`. Typing `p.na` narrows the suggestions to `name`. |
+| In `SELECT id, name FROM products`, request completion after the comma and space, before `name` | All six product columns are offered. Typing `na` at an empty target filters to `name`; repeat on a new line after the comma. |
+| Request completion after `SELECT ` with no FROM clause | Dialect keywords such as `FROM` are offered; unrelated table columns are not. |
 | Inspect `orders` metadata | SQLite reports its primary key and the foreign key to `customers`. DuckDB constraint extraction remains unimplemented. |
 
 For completion in the middle of SQL, the client must send the full statement and
@@ -69,8 +71,9 @@ menu opens after `.`, confirm the client source has dot triggering enabled.
 The companion [dbridge.nvim completion source](https://github.com/realEbi/dbridge.nvim/blob/dbridge-2.0/README.md#autocompletion)
 automatically requests suggestions on `.` when configured with nvim-cmp; use both
 updated repositories, restart Neovim, and reconnect the Profile for this check.
-The server supports physical-table qualifiers in the current SELECT; CTE/derived
-columns and outer correlated references are still deferred.
+The server supports physical-table qualifiers and unqualified target expressions
+in the current SELECT. CTE/derived columns and outer correlated references remain
+deferred; a SELECT with no resolvable physical source falls back to keywords.
 
 Disconnect your Sessions when finished. The sample files remain available for
 later use; rerun `make manual-prepare` when you want to reset them. See the

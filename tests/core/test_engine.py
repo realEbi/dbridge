@@ -236,3 +236,53 @@ def test_connect_by_profile_name(engine, isolated_profiles):
     engine.save_profile("mem", "sqlite", {"uri": ":memory:"})
     session_id = engine.connect(profile="mem")["session_id"]
     assert engine.list_databases(session_id) == ["main"]
+
+
+@pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
+@pytest.mark.parametrize("marked_sql, table, columns", [
+    ("SELECT id, | FROM products", "products", ["id", "name", "category"]),
+    ("SELECT id, ca|tegory FROM products", "products", ["category"]),
+    ("SELECT 'café ☕',\n COALESCE(na|me, '') FROM products", "products", ["name"]),
+    (
+        "SELECT (SELECT | FROM orders) FROM products", "orders",
+        ["id", "product_id", "order_reference"],
+    ),
+    (
+        "SELECT id FROM products; SELECT | FROM orders", "orders",
+        ["id", "product_id", "order_reference"],
+    ),
+])
+def test_complete_unqualified_select_with_real_adapter(
+    engine, adapter, marked_sql, table, columns,
+):
+    session_id = engine.connect(adapter, {"uri": ":memory:"})["session_id"]
+    try:
+        engine.execute(
+            session_id, "CREATE TABLE products (id INTEGER, name TEXT, category TEXT)"
+        )
+        engine.execute(
+            session_id,
+            "CREATE TABLE orders (id INTEGER, product_id INTEGER, order_reference TEXT)",
+        )
+        before, after = marked_sql.split("|")
+        items = engine.complete(
+            session_id, before + after, position=len(before.encode("utf-8"))
+        )
+        assert [item["label"] for item in items] == columns
+        assert [item["insert_text"] for item in items] == columns
+        assert {item["kind"] for item in items} == {"column"}
+        assert [item["detail"] for item in items] == [f"{table}.{c}" for c in columns]
+    finally:
+        engine.disconnect(session_id)
+
+
+@pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
+def test_bare_select_returns_session_dialect_keywords(engine, adapter):
+    session_id = engine.connect(adapter, {"uri": ":memory:"})["session_id"]
+    try:
+        items = engine.complete(session_id, "SELECT ")
+        assert items == engine.complete(session_id, "")
+        assert {item["kind"] for item in items} == {"keyword"}
+        assert "FROM" in [item["label"] for item in items]
+    finally:
+        engine.disconnect(session_id)

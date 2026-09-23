@@ -101,12 +101,19 @@ the following FROM clause. Resolution preserves nested-query and statement
 boundaries; returned insertion text is the bare column name. Unresolvable
 qualifiers and metadata failures return no qualified suggestions.
 
-The existing unqualified path classifies the text before the cursor and extracts
-tables from full SQL: FROM/JOIN contexts offer tables, SELECT/WHERE/AND/OR/ON
-contexts offer columns, and other contexts fall back to dialect keywords. This
-path still uses whole-statement table extraction. CTE/derived-table projections,
-outer correlated references, quoted qualifier syntax, unqualified SELECT commas,
-values, and richer ranking remain deferred. See the [backlog](backlog/README.md).
+Unqualified SELECT target expressions use the same cursor marker and exact SELECT
+scope. They offer columns of that scope's physical FROM/JOIN sources, including
+after commas, inside expressions, and for typed prefixes. Source order and schema
+column order are preserved, with duplicate labels retaining physical table detail.
+When no physical source resolves, including bare `SELECT `, completion returns
+dialect keywords without introspecting other tables. Metadata failures skip the
+affected source; no matching column prefix returns an empty list.
+
+FROM/JOIN contexts still offer tables. The legacy unqualified WHERE/AND/OR/ON
+path still uses whole-statement table extraction; other contexts fall back to
+dialect keywords. CTE/derived-table projections, outer correlated references,
+quoted qualifier syntax, values, and richer ranking remain deferred. See the
+[backlog](backlog/README.md).
 
 ## Verification evidence
 
