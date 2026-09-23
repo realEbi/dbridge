@@ -78,3 +78,8 @@ exclude_lines = [
   "^\\s*\\.\\.\\.$",
   "@(abc\\.)?abstractmethod",
 ]
+
+[tool.mypy]
+# Unregistered legacy adapters need separate ports, not missing-driver ignores.
+# A port moved out of _parked/ re-enters recursive type checking automatically.
+exclude = ["^src/dbridge/adapters/_parked/"]

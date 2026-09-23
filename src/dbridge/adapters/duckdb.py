@@ -5,7 +5,6 @@ import duckdb
 from dbridge.adapters.base import (
     ColumnDef,
     DBAdapter,
-    ForeignKey,
     QueryResult,
     TableSchema,
 )

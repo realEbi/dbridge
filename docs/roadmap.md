@@ -44,7 +44,11 @@ cross-repository integration when a user-visible flow spans both.
 
 Local verification tooling now provides `make manual-prepare` for reusable sample
 databases and `make test` / `make test-cov` for automated checks. See the
-[manual guide](manual-testing-guide.md). The daily-use outcomes above remain open.
+[manual guide](manual-testing-guide.md). Type and lint checks are now clean and run
+through `make check` and the existing CI matrix; repeated Adapter construction
+also preserves one diagnostic handler. See the verified
+[quality-check maintenance change](../openspec/changes/archive/2026-09-23-restore-server-quality-checks/).
+The broader daily-use outcomes above remain open.
 
 ## 2. Responsive queries and larger results
 
