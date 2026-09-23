@@ -8,6 +8,8 @@ import sqlglot
 import sqlglot.expressions as exp
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
+from dbridge.adapters.base import TableRef
+
 # Tokens that indicate the cursor sits after a FROM or JOIN keyword.
 _FROM_JOIN_RE = re.compile(
     r"\b(?:FROM|JOIN)\s*\w*$", re.IGNORECASE
@@ -115,7 +117,7 @@ def _column_scope(
     return None
 
 
-def _physical_table(source: exp.Expression | Scope, scope: Scope) -> str | None:
+def _physical_table(source: exp.Expression | Scope, scope: Scope) -> TableRef | None:
     if not isinstance(source, exp.Table):
         return None
     # sqlglot's source map is case-sensitive; SQLite/DuckDB CTE references are
@@ -124,10 +126,17 @@ def _physical_table(source: exp.Expression | Scope, scope: Scope) -> str | None:
         name.casefold() == source.name.casefold() for name in scope.cte_sources
     ):
         return None
-    return ".".join(part.name for part in source.parts)
+    # Keep decoded identifier components separate: a literal "sales.products"
+    # must never become the table products in the sales namespace on lookup.
+    return TableRef(source.name, database=source.catalog or None, schema=source.db or None)
 
 
-def _qualified_table(sql: str, prefix: str, match: re.Match[str]) -> str | None:
+def _table_label(table: TableRef) -> str:
+    """Preserve display/sort detail without using that lossy text as an identity."""
+    return ".".join(part for part in (table.database, table.schema, table.name) if part)
+
+
+def _qualified_table(sql: str, prefix: str, match: re.Match[str]) -> TableRef | None:
     found = _column_scope(sql, prefix, match)
     if found is None:
         return None
@@ -141,7 +150,7 @@ def _qualified_table(sql: str, prefix: str, match: re.Match[str]) -> str | None:
     return _physical_table(sources[0], scope) if len(sources) == 1 else None
 
 
-def _select_tables(sql: str, prefix: str, match: re.Match[str]) -> list[str]:
+def _select_tables(sql: str, prefix: str, match: re.Match[str]) -> list[TableRef]:
     found = _column_scope(sql, prefix, match)
     if found is None:
         return []
@@ -165,7 +174,7 @@ def _select_tables(sql: str, prefix: str, match: re.Match[str]) -> list[str]:
 def complete(
     sql: str,
     list_tables_fn,          # () -> list[str]
-    get_columns_fn,          # (table: str) -> list[str]
+    get_columns_fn,          # (table: str | TableRef) -> list[str]
     get_keywords_fn,         # () -> list[str]
     position: int | None = None,
 ) -> list[dict]:
@@ -190,13 +199,14 @@ def complete(
             table = _qualified_table(sql, prefix, qualified)
             if table is None:
                 return []
+            table_label = _table_label(table)
             partial = qualified["partial"].casefold()
             return [
                 CompletionItem(
                     label=col,
                     kind="column",
-                    detail=f"{table}.{col}",
-                    sort_key=f"{table}.{col}".lower(),
+                    detail=f"{table_label}.{col}",
+                    sort_key=f"{table_label}.{col}".lower(),
                 ).to_dict()
                 for col in get_columns_fn(table)
                 if col.casefold().startswith(partial)
@@ -219,11 +229,12 @@ def complete(
                 partial = unqualified["partial"].casefold()
                 columns: list[CompletionItem] = []
                 for table in in_scope:
+                    table_label = _table_label(table)
                     try:
                         columns.extend(
                             CompletionItem(
-                                label=col, kind="column", detail=f"{table}.{col}",
-                                sort_key=f"{table}.{col}".lower(),
+                                label=col, kind="column", detail=f"{table_label}.{col}",
+                                sort_key=f"{table_label}.{col}".lower(),
                             )
                             for col in get_columns_fn(table)
                             if col.casefold().startswith(partial)
@@ -233,17 +244,17 @@ def complete(
                 return [c.to_dict() for c in columns]
 
         if _WHERE_RE.search(prefix.rstrip()):
-            in_scope = _extract_tables_from_sql(sql.rstrip())
+            legacy_tables = _extract_tables_from_sql(sql.rstrip())
             columns = []
-            for table in in_scope:
+            for legacy_table in legacy_tables:
                 try:
-                    for col in get_columns_fn(table):
+                    for col in get_columns_fn(legacy_table):
                         columns.append(
                             CompletionItem(
                                 label=col,
                                 kind="column",
-                                detail=f"{table}.{col}",
-                                sort_key=f"{table}.{col}".lower(),
+                                detail=f"{legacy_table}.{col}",
+                                sort_key=f"{legacy_table}.{col}".lower(),
                             )
                         )
                 except Exception:

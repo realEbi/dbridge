@@ -9,7 +9,9 @@ columns inside target expressions for SQLite and DuckDB Sessions. The server SHA
 filter a typed column prefix case-insensitively, preserve source and schema column
 order, and retain bare insertion text and the existing completion item fields.
 Identical names from different physical sources SHALL retain their table detail;
-this change does not establish a new ranking or deduplication policy.
+this change does not establish a new ranking or deduplication policy. Literal
+source-name and namespace components SHALL retain their identity, including
+dots, spaces, and embedded quotes.
 
 #### Scenario: Complete after a comma before the FROM clause
 - **WHEN** SQL is `SELECT id,  FROM products` and the cursor follows the comma and space
@@ -33,6 +35,14 @@ this change does not establish a new ranking or deduplication policy.
 - **THEN** the result is empty without an RPC error
 - **AND** unavailable metadata for one source does not prevent other physical
   sources from contributing matching columns
+
+#### Scenario: Literal source name differs from a qualified table name
+- **WHEN** an unqualified target is completed from literal table `"sales.products"`
+  while a separate products table exists in the sales namespace
+- **THEN** only the literal table's columns are offered, including after commas
+  and with a cursor inside a typed identifier
+- **AND** quoted schema/catalog components and server-generated source identifiers
+  preserve the same physical identity
 
 ### Requirement: Isolate unqualified SELECT sources and use a keyword fallback
 

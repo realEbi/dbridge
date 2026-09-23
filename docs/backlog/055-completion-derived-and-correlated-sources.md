@@ -18,8 +18,10 @@ instead of guessing physical columns from other scopes. Its tests preserve that
 limitation. Quoted qualifier syntax still needs explicit dialect-aware design.
 [002](002-qualified-identifiers.md) now preserves SQLite attached namespaces during
 metadata lookup; ordinary qualified aliases can use that scoped introspection.
-Literal quoted source components and projected-source inference remain separate
-completion work.
+Scoped qualified and unqualified SELECT completion now preserves literal quoted
+physical-source components, including dots, spaces, and embedded quotes, through
+structured metadata lookup. Quoted qualifier syntax and projected-source
+inference remain separate completion work.
 
 ## Desired outcome
 

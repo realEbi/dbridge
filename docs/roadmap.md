@@ -43,15 +43,18 @@ cross-repository integration when a user-visible flow spans both.
 
 Local verification tooling now provides `make manual-prepare` for reusable sample
 databases and `make test` / `make test-cov` for automated checks. See the
-[manual guide](manual-testing-guide.md). Type and lint checks are clean and run
-through `make check` and the existing CI matrix; repeated Adapter construction
-also preserves one diagnostic handler. See the verified
+[manual guide](manual-testing-guide.md). Generated table queries now use server-provided
+quoted identifiers, preserving SQLite namespaces and DuckDB catalog/schema identity.
+Session-preserving refresh, visible query targeting, and statement-under-cursor
+execution are also implemented and verified with the Neovim Client. See
+[002](backlog/002-qualified-identifiers.md), [028](backlog/028-active-session-indicator.md),
+[029](backlog/029-client-schema-refresh.md), and [006](backlog/006-statement-under-cursor.md).
+
+Type and lint checks are clean and run in the existing CI matrix (`make check`
+locally). Logger reuse preserves one diagnostic handler; see the verified
 [quality-check maintenance change](../openspec/changes/archive/2026-09-23-restore-server-quality-checks/).
-Generated table queries now use server-provided quoted identifiers, preserving
-SQLite namespaces and DuckDB catalog/schema identity, including literal dots and
-quotes. See [002](backlog/002-qualified-identifiers.md) for both repository changes.
-The remaining daily-use outcomes above remain open; dialect reporting and hierarchy
-presentation are still separate work.
+Profile rename, browsing hierarchy, broader cache coverage, DuckDB constraints,
+and dialect reporting remain open; this milestone is not complete.
 
 ## 2. Responsive queries and larger results
 

@@ -21,3 +21,12 @@ No actual GitHub Actions run or Python 3.11 runtime test was performed locally;
 publishing is outside this task. The existing CI matrix will exercise both Python
 versions after integration/publication. No client behavior, parked adapter ports,
 coverage exclusions, or optional runtime dependencies were changed.
+
+## Final combined server gate
+
+After integrating identifiers, SELECT completion, and quality checks on
+2026-09-23, `make check` passed (mypy: 48 files; Ruff: no findings), and
+`make test-cov` passed all 350 tests on Python 3.12.12 with 98.71% total coverage.
+This includes the structured-identity completion collision regressions. The 85%
+coverage floor, synchronous execution, and supported Adapter set are unchanged.
+Earlier counts above describe the isolated feature runs.

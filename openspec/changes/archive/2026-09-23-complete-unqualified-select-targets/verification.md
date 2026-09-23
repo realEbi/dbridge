@@ -28,3 +28,23 @@ README, architecture, roadmap, manual checks and backlog 018/053 describe the
 verified behavior; no domain terminology, architectural decision or development
 command changed. Headless real-client checks do not claim a user's live GUI was
 operated. No commits, pushes, releases, or unrelated changes were made.
+
+## Combined-worktree integration verification
+
+The literal-dot collision was reproduced against real SQLite and DuckDB before
+the structured completion fix. Regressions now verify user-entered and generated
+source identifiers, qualified and unqualified targets, commas/midword filtering,
+and a colliding namespace-qualified table. Existing quoted namespace/catalog
+fixtures additionally verify completion resolves the correct physical columns.
+The focused completion/identifier/Engine/stdio suite passed 217 cases; focused
+ruff and completion.py mypy passed. Root integration owns the final combined
+coverage and cross-client run after all lanes are merged.
+
+## Final combined server gate
+
+After integrating identifiers, SELECT completion, and quality checks on
+2026-09-23, `make check` passed (mypy: 48 files; Ruff: no findings), and
+`make test-cov` passed all 350 tests on Python 3.12.12 with 98.71% total coverage.
+This includes the structured-identity completion collision regressions. The 85%
+coverage floor, synchronous execution, and supported Adapter set are unchanged.
+Earlier counts above describe the isolated feature runs.

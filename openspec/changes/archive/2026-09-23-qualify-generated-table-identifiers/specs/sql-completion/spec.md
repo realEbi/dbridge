@@ -8,7 +8,9 @@ alias, or its name when unaliased. This SHALL work in SELECT expressions includi
 after commas and in WHERE and JOIN ON expressions for SQLite and DuckDB Sessions.
 Alias matching and optional column-prefix filtering SHALL be case-insensitive.
 Physical source lookup SHALL retain schema/catalog qualifiers, including SQLite
-attached database namespaces and DuckDB catalog/schema scopes.
+attached database namespaces and DuckDB catalog/schema scopes. Literal dots,
+spaces, and embedded quotes in a source name or namespace SHALL remain part of
+that identifier component and MUST NOT resolve a different physical table.
 
 #### Scenario: Complete either selected product column
 - **WHEN** SQL is `SELECT p.name, p.category FROM products p LIMIT 100` and the
@@ -34,3 +36,9 @@ attached database namespaces and DuckDB catalog/schema scopes.
 #### Scenario: SQLite attached database source
 - **WHEN** products exists in main and an attached SQLite namespace and the query selects the attached table as p
 - **THEN** qualified completion returns only the attached table's columns
+
+#### Scenario: Quoted physical source contains a literal dot
+- **WHEN** the current query reads the literal table `"sales.products"` as p and
+  a different table products exists in the sales namespace
+- **THEN** qualified completion offers only the literal table's columns
+- **AND** the same holds when the source uses the server-generated qualified identifier

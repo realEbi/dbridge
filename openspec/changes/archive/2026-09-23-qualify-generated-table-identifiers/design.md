@@ -17,3 +17,17 @@ The client companion [use-server-table-identifiers](https://github.com/realEbi/d
 ## Risks / Trade-offs
 
 Waiting for table metadata introduces one asynchronous step before the first generated query. Identity is cached with existing TTL/refresh semantics; concurrent schema changes can still make a previously valid identifier stale. Legacy fqn cannot represent literal dots unambiguously, so new callers should send structured identity. Quoting bounds SQL syntax but does not add authorization.
+
+## Combined-worktree integration correction
+
+Review of SELECT completion together with generated identifiers found that joining
+decoded AST components into one dotted string discarded literal boundaries. A
+real table named `sales.products` could consequently return columns from a
+different products table in the sales namespace (both SQLite and DuckDB); the
+generated SQLite identifier reproduced that wrong-source result too.
+
+Scoped qualified and unqualified SELECT completion now passes a frozen TableRef
+with literal name, schema, and catalog fields through the existing registry to
+the Adapter. Dotted completion detail/sort text is formatted separately and stays
+compatible. The legacy string metadata API keeps its previous interpretation;
+legacy unqualified WHERE source extraction remains outside this correction.

@@ -15,7 +15,9 @@ alias, or its name when unaliased. This SHALL work in SELECT expressions includi
 after commas and in WHERE and JOIN ON expressions for SQLite and DuckDB Sessions.
 Alias matching and optional column-prefix filtering SHALL be case-insensitive.
 Physical source lookup SHALL retain schema/catalog qualifiers, including SQLite
-attached database namespaces and DuckDB catalog/schema scopes.
+attached database namespaces and DuckDB catalog/schema scopes. Literal dots,
+spaces, and embedded quotes in a source name or namespace SHALL remain part of
+that identifier component and MUST NOT resolve a different physical table.
 
 #### Scenario: Complete either selected product column
 - **WHEN** SQL is `SELECT p.name, p.category FROM products p LIMIT 100` and the
@@ -41,6 +43,12 @@ attached database namespaces and DuckDB catalog/schema scopes.
 #### Scenario: SQLite attached database source
 - **WHEN** products exists in main and an attached SQLite namespace and the query selects the attached table as p
 - **THEN** qualified completion returns only the attached table's columns
+
+#### Scenario: Quoted physical source contains a literal dot
+- **WHEN** the current query reads the literal table `"sales.products"` as p and
+  a different table products exists in the sales namespace
+- **THEN** qualified completion offers only the literal table's columns
+- **AND** the same holds when the source uses the server-generated qualified identifier
 
 ### Requirement: Preserve scope and tolerate unresolved SQL
 
@@ -97,7 +105,9 @@ columns inside target expressions for SQLite and DuckDB Sessions. The server SHA
 filter a typed column prefix case-insensitively, preserve source and schema column
 order, and retain bare insertion text and the existing completion item fields.
 Identical names from different physical sources SHALL retain their table detail;
-this change does not establish a new ranking or deduplication policy.
+this change does not establish a new ranking or deduplication policy. Literal
+source-name and namespace components SHALL retain their identity, including
+dots, spaces, and embedded quotes.
 
 #### Scenario: Complete after a comma before the FROM clause
 - **WHEN** SQL is `SELECT id,  FROM products` and the cursor follows the comma and space
@@ -121,6 +131,14 @@ this change does not establish a new ranking or deduplication policy.
 - **THEN** the result is empty without an RPC error
 - **AND** unavailable metadata for one source does not prevent other physical
   sources from contributing matching columns
+
+#### Scenario: Literal source name differs from a qualified table name
+- **WHEN** an unqualified target is completed from literal table `"sales.products"`
+  while a separate products table exists in the sales namespace
+- **THEN** only the literal table's columns are offered, including after commas
+  and with a cursor inside a typed identifier
+- **AND** quoted schema/catalog components and server-generated source identifiers
+  preserve the same physical identity
 
 ### Requirement: Isolate unqualified SELECT sources and use a keyword fallback
 

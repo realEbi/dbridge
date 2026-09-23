@@ -56,3 +56,17 @@ JOIN ordering, nested/UNION/multiple statements, CTE/derived isolation, malforme
 SQL, and metadata errors with core tests. Run real SQLite/DuckDB Engine and stdio
 checks plus the full coverage gate and focused lint/type checks. Update owning
 documents, synchronize verified deltas, and archive only after validation.
+
+## Combined-worktree integration correction
+
+Review of SELECT completion together with generated identifiers found that joining
+decoded AST components into one dotted string discarded literal boundaries. A
+real table named `sales.products` could consequently return columns from a
+different products table in the sales namespace (both SQLite and DuckDB); the
+generated SQLite identifier reproduced that wrong-source result too.
+
+Scoped qualified and unqualified SELECT completion now passes a frozen TableRef
+with literal name, schema, and catalog fields through the existing registry to
+the Adapter. Dotted completion detail/sort text is formatted separately and stays
+compatible. The legacy string metadata API keeps its previous interpretation;
+legacy unqualified WHERE source extraction remains outside this correction.

@@ -2,6 +2,8 @@
 
 import pytest
 
+from dbridge.adapters.base import TableRef
+
 from dbridge.core.completion import (
     CompletionItem,
     _extract_tables_from_sql,
@@ -21,7 +23,7 @@ def _complete(sql, position=None):
     return complete(
         sql,
         list_tables_fn=lambda: TABLES,
-        get_columns_fn=lambda t: COLUMNS.get(t, []),
+        get_columns_fn=lambda t: COLUMNS.get(t.name if isinstance(t, TableRef) else t, []),
         get_keywords_fn=lambda: KEYWORDS,
         position=position,
     )
@@ -265,9 +267,8 @@ def test_explicit_schema_reference_is_not_shadowed_by_same_named_cte():
     items = complete(
         before + " FROM main.products p",
         list_tables_fn=lambda: TABLES,
-        get_columns_fn=lambda table: COLUMNS["products"] if table in {
-            "products", "main.products"
-        } else [],
+        get_columns_fn=lambda table: COLUMNS["products"]
+        if table == TableRef("products", schema="main") else [],
         get_keywords_fn=lambda: KEYWORDS,
         position=len(before.encode("utf-8")),
     )
@@ -275,13 +276,18 @@ def test_explicit_schema_reference_is_not_shadowed_by_same_named_cte():
     assert [item["label"] for item in items] == COLUMNS["products"]
 
 
-@pytest.mark.parametrize("source", ["first.products", "catalog.first.products"])
-def test_qualified_lookup_preserves_physical_source_schema_and_catalog(source):
+@pytest.mark.parametrize(("source", "identity"), [
+    ("first.products", TableRef("products", schema="first")),
+    ("catalog.first.products", TableRef("products", database="catalog", schema="first")),
+    ('"catalog.with.dot"."first.with.dot"."products.with.dot"',
+     TableRef("products.with.dot", database="catalog.with.dot", schema="first.with.dot")),
+])
+def test_qualified_lookup_preserves_physical_source_schema_and_catalog(source, identity):
     queried_tables = []
 
     def get_columns(table):
         queried_tables.append(table)
-        if table == source:
+        if table == identity:
             return ["selected_source_column"]
         return ["unrelated_source_column"]
 
@@ -293,7 +299,7 @@ def test_qualified_lookup_preserves_physical_source_schema_and_catalog(source):
         position=len("SELECT p."),
     )
 
-    assert queried_tables == [source]
+    assert queried_tables == [identity]
     assert [item["label"] for item in items] == ["selected_source_column"]
 
 
@@ -326,7 +332,7 @@ def test_qualified_metadata_failure_returns_no_unrelated_suggestions():
     )
 
     assert items == []
-    assert queried_tables == ["products"]
+    assert queried_tables == [TableRef("products")]
 
 
 @pytest.mark.parametrize("marked_sql", [
@@ -436,9 +442,9 @@ def test_unparseable_sql_outside_a_known_context_returns_keywords():
 def test_a_table_whose_columns_cannot_be_read_is_skipped():
     """One failing table must not lose the other tables' columns."""
     def get_columns(table):
-        if table == "orders":
+        if table == TableRef("orders"):
             raise RuntimeError("introspection failed")
-        return COLUMNS.get(table, [])
+        return COLUMNS.get(table.name, [])
 
     items = complete(
         "SELECT  FROM users JOIN orders ON users.id = orders.user_id",
@@ -593,7 +599,7 @@ def test_unqualified_select_preserves_schema_and_catalog_lookup():
         before + " FROM warehouse.retail.products",
         lambda: [], get_columns, lambda: KEYWORDS, position=len(before),
     )
-    assert queried == ["warehouse.retail.products"]
+    assert queried == [TableRef("products", database="warehouse", schema="retail")]
     assert items[0]["detail"] == "warehouse.retail.products.name"
 
 

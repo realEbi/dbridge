@@ -62,6 +62,8 @@ Connect to each sample database and try these checks in your client:
 | Enter `products` in the updated Neovim explorer | Generated SQL includes `"main"."products"` for SQLite or the full quoted catalog/schema/table for DuckDB, and shows the selected table. |
 | In `SELECT id, name FROM products`, request completion after the comma and space, before `name` | All six product columns are offered. Typing `na` at an empty target filters to `name`; repeat on a new line after the comma. |
 | Request completion after `SELECT ` with no FROM clause | Dialect keywords such as `FROM` are offered; unrelated table columns are not. |
+| In Neovim, create a TEMP table, then refresh its Profile with `R` | The same Session remains active and the TEMP table is still queryable; the editor shows the active Profile, Adapter, and Session. |
+| Put two SELECT statements in the query editor and use `<leader>s` inside the second | Only the second statement runs. `<leader>r` remains the whole-buffer/visual action. |
 | Inspect `orders` metadata | SQLite reports its primary key and the foreign key to `customers`. DuckDB constraint extraction remains unimplemented. |
 
 For completion in the middle of SQL, the client must send the full statement and

@@ -109,7 +109,10 @@ resolved against physical FROM/JOIN sources in the cursor's SELECT scope. A
 temporary cursor marker lets sqlglot parse the unfinished column without losing
 the following FROM clause. Resolution preserves nested-query and statement
 boundaries; returned insertion text is the bare column name. Unresolvable
-qualifiers and metadata failures return no qualified suggestions.
+qualifiers and metadata failures return no qualified suggestions. Physical source
+components travel as structured table identities through the schema registry, so
+literal dots in quoted table/schema/catalog names cannot select a different
+namespace. Completion detail/sort text remains separate from metadata identity.
 
 Unqualified SELECT target expressions use the same cursor marker and exact SELECT
 scope. They offer columns of that scope's physical FROM/JOIN sources, including

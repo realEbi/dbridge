@@ -78,6 +78,9 @@ def test_sqlite_attached_namespaces_preserve_literal_scope_and_cache(engine_sess
         schema = engine.get_table_schema(sid, "same.legacy.name", ref)
         assert [c["name"] for c in schema["columns"]] == [column]
         assert schema["sql_identifier"] == identifier
+        for before in ("SELECT ", "SELECT p."):
+            items = engine.complete(sid, before + f" FROM {identifier} p", len(before))
+            assert [item["label"] for item in items] == [column]
         assert engine.execute(sid, f'SELECT * FROM {schema["sql_identifier"]}')["columns"] == [column]
         assert engine.list_schemas(sid, scope) == [scope]
         assert engine.list_tables(sid, scope, scope) == ["products"]
@@ -116,8 +119,44 @@ def test_duckdb_duplicate_tables_stay_in_selected_catalog_and_schema(engine):
             ref = {"name": "products", "database": database, "schema": namespace}
             result = engine.get_table_schema(sid, "same.legacy.name", ref)
             assert result["sql_identifier"] == identifier
+            for before in ("SELECT ", "SELECT p."):
+                items = engine.complete(sid, before + f" FROM {identifier} p", len(before))
+                assert [item["label"] for item in items] == [column]
             assert [c["name"] for c in result["columns"]] == [column]
             assert engine.execute(sid, f'SELECT * FROM {result["sql_identifier"]}')["columns"] == [column]
         assert [c["name"] for c in engine.get_table_schema(sid, "products")["columns"]] == ["default_col"]
     finally:
         engine.disconnect(sid)
+
+
+@pytest.mark.parametrize(("projection", "expected"), [
+    ("SELECT |", ["intended_id", "intended_name"]),
+    ("SELECT 1, intended_na|me", ["intended_name"]),
+    ("SELECT p.|", ["intended_id", "intended_name"]),
+    ("SELECT 1, p.intended_na|me", ["intended_name"]),
+])
+def test_completion_does_not_confuse_a_literal_dot_with_a_namespace(
+    connected, projection, expected,
+):
+    engine, sid, adapter = connected
+    engine.execute(sid, 'CREATE TABLE "sales.products" (intended_id INTEGER, intended_name TEXT)')
+    if adapter == "sqlite":
+        engine.execute(sid, "ATTACH ':memory:' AS sales")
+    else:
+        engine.execute(sid, "CREATE SCHEMA sales")
+    engine.execute(sid, "CREATE TABLE sales.products (wrong_schema_only INTEGER)")
+    metadata = engine.get_table_schema(sid, "unused", {
+        "name": "sales.products", "schema": "main",
+        "database": "main" if adapter == "sqlite" else "memory",
+    })
+    # Exercise both user-entered names and the server-generated SELECT source.
+    for identifier in ['"sales.products"', metadata["sql_identifier"]]:
+        before, after = projection.split("|")
+        sql = before + after + f" FROM {identifier} p"
+        items = engine.complete(sid, sql, position=len(before.encode("utf-8")))
+        assert [item["label"] for item in items] == expected
+        assert [item["insert_text"] for item in items] == expected
+        assert {item["kind"] for item in items} == {"column"}
+    # The genuinely qualified source still resolves its own metadata/cache key.
+    items = engine.complete(sid, "SELECT p. FROM sales.products p", len("SELECT p."))
+    assert [item["label"] for item in items] == ["wrong_schema_only"]
