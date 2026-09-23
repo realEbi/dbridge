@@ -93,6 +93,14 @@ All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` header).
 
 **Supported adapters:** `sqlite`, `duckdb`
 
+SQL completion supports unquoted physical-table qualifiers in the current SELECT
+scope. For `SELECT p.name, p.category FROM products p LIMIT 100`, send the full
+SQL and a cursor `position` immediately after either `p.` to receive product
+columns. Typing `p.na` filters to matching names; insertion text is the column
+name alone. CTE/derived-table columns, outer correlated references, and broader
+unqualified SELECT-list completion remain deferred. See the
+[manual guide](docs/manual-testing-guide.md) for an interactive check.
+
 **Environment variables** (prefix `dbridge_`):
 
 | Variable | Default | Description |

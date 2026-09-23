@@ -75,7 +75,10 @@ and [functions](backlog/044-function-completion.md). Consider
 
 ## 4. Richer SQL assistance
 
-Extend completion with [aliases](backlog/015-alias-completion.md),
+Completion now resolves [physical-table aliases](backlog/015-alias-completion.md)
+within the cursor's SELECT scope, including after a SELECT comma. Extend it with
+[derived and correlated sources](backlog/055-completion-derived-and-correlated-sources.md),
+[unqualified SELECT targets](backlog/018-select-comma-completion.md),
 [values](backlog/016-value-completion.md), and
 [ranking](backlog/017-completion-ranking.md). Explore
 [custom providers](backlog/025-completion-providers.md) using real needs such as

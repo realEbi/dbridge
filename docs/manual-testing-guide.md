@@ -58,7 +58,19 @@ Connect to each sample database and try these checks in your client:
 | Run `SELECT id, name, email FROM customers ORDER BY id` | Eight rows; columns remain in that order. Chidi's email is NULL and Fatima's is an empty string. |
 | Run `SELECT * FROM order_items ORDER BY id` | With the default 100-row cap, 100 rows and a truncation warning. |
 | Request completion after `SELECT * FROM ` | Sample table names are offered. |
+| In `SELECT p.name, p.category FROM products p LIMIT 100`, put the cursor after either `p.` and request completion | `id`, `sku`, `name`, `category`, `price`, and `discontinued` are offered. Selecting `name` leaves a single `p.name`. Typing `p.na` narrows the suggestions to `name`. |
 | Inspect `orders` metadata | SQLite reports its primary key and the foreign key to `customers`. DuckDB constraint extraction remains unimplemented. |
+
+For completion in the middle of SQL, the client must send the full statement and
+the cursor's UTF-8 byte offset. After updating the server code, restart the
+client's server process and reconnect; confirm it launches this checkout rather
+than an older installed package. If the direct server suggestions work but no
+menu opens after `.`, confirm the client source has dot triggering enabled.
+The companion [dbridge.nvim completion source](https://github.com/realEbi/dbridge.nvim/blob/dbridge-2.0/README.md#autocompletion)
+automatically requests suggestions on `.` when configured with nvim-cmp; use both
+updated repositories, restart Neovim, and reconnect the Profile for this check.
+The server supports physical-table qualifiers in the current SELECT; CTE/derived
+columns and outer correlated references are still deferred.
 
 Disconnect your Sessions when finished. The sample files remain available for
 later use; rerun `make manual-prepare` when you want to reset them. See the

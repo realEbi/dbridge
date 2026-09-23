@@ -116,6 +116,90 @@ def test_complete_returns_columns_at_a_cursor_position(engine_session):
     assert [i["label"] for i in items] == ["id", "name"]
 
 
+@pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
+@pytest.mark.parametrize("marked_sql, table, columns", [
+    (
+        "SELECT p.|name, p.category FROM products p LIMIT 100",
+        "products", ["id", "name", "category"],
+    ),
+    (
+        "SELECT p.name, p.|category FROM products p LIMIT 100",
+        "products", ["id", "name", "category"],
+    ),
+    (
+        "SELECT p.name, p.ca|tegory FROM products p LIMIT 100",
+        "products", ["category"],
+    ),
+    (
+        "SELECT p.|name FROM products p JOIN orders o ON p.id = o.product_id",
+        "products", ["id", "name", "category"],
+    ),
+    (
+        "SELECT p.name FROM products p JOIN orders o ON p.id = o.|product_id",
+        "orders", ["id", "product_id", "order_reference"],
+    ),
+    (
+        "SELECT 'café', p.|name FROM products p",
+        "products", ["id", "name", "category"],
+    ),
+], ids=["first-column", "after-comma", "prefix", "join-product", "join-order", "utf8"])
+def test_complete_resolves_alias_columns_with_real_adapter(
+    engine, adapter, marked_sql, table, columns,
+):
+    session_id = engine.connect(adapter, {"uri": ":memory:"})["session_id"]
+    try:
+        engine.execute(
+            session_id, "CREATE TABLE products (id INTEGER, name TEXT, category TEXT)"
+        )
+        engine.execute(
+            session_id,
+            "CREATE TABLE orders (id INTEGER, product_id INTEGER, order_reference TEXT)",
+        )
+        before, _, after = marked_sql.partition("|")
+
+        items = engine.complete(
+            session_id, before + after, position=len(before.encode("utf-8"))
+        )
+
+        assert [item["label"] for item in items] == columns
+        assert {item["kind"] for item in items} == {"column"}
+        assert [item["insert_text"] for item in items] == columns
+        assert [item["detail"] for item in items] == [
+            f"{table}.{column}" for column in columns
+        ]
+    finally:
+        engine.disconnect(session_id)
+
+
+def test_complete_duckdb_alias_uses_the_source_schema(engine):
+    session_id = engine.connect("duckdb", {"uri": ":memory:"})["session_id"]
+    try:
+        engine.execute(session_id, "CREATE SCHEMA retail")
+        engine.execute(session_id, "CREATE SCHEMA warehouse")
+        engine.execute(
+            session_id, "CREATE TABLE retail.products (id INTEGER, name TEXT, category TEXT)"
+        )
+        engine.execute(
+            session_id,
+            "CREATE TABLE warehouse.products (id INTEGER, stock_quantity INTEGER, bin_code TEXT)",
+        )
+
+        for schema, columns in [
+            ("retail", ["id", "name", "category"]),
+            ("warehouse", ["id", "stock_quantity", "bin_code"]),
+        ]:
+            items = engine.complete(
+                session_id, f"SELECT p. FROM {schema}.products p",
+                position=len("SELECT p.".encode("utf-8")),
+            )
+
+            assert [item["label"] for item in items] == columns, schema
+            assert [item["insert_text"] for item in items] == columns, schema
+            assert {item["kind"] for item in items} == {"column"}, schema
+    finally:
+        engine.disconnect(session_id)
+
+
 def test_complete_falls_back_to_keywords(engine_session):
     engine, session_id = engine_session
     items = engine.complete(session_id, "")
