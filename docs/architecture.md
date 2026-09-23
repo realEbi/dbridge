@@ -108,5 +108,6 @@ Tests cover [stdio framing](../tests/protocol/test_framing.py),
 [completion](../tests/core/test_completion.py),
 [cache behavior](../tests/core/test_schema_registry.py), and
 [adapters](../tests/adapters/). Test presence does not imply every edge case is
-covered. The [manual guide](manual-testing-guide.md) exercises a real subprocess;
+covered. The [manual guide](manual-testing-guide.md) covers interactive checks
+against reusable sample databases;
 [development instructions](development.md) list the verification commands.
