@@ -1,146 +1,80 @@
 # dbridge Manual Testing Guide
 
-This walkthrough exercises the current synchronous server over real stdio RPCs
-against SQLite and DuckDB. It creates temporary databases and temporary Profile
-configuration, then removes them on exit. Run it from the repository root after
-`uv sync`. No saved user Profiles are read or modified.
+Use `make manual-prepare` to create reusable SQLite and DuckDB databases for
+interactive testing through your client. The sample generator owns database
+setup; `make test` runs the automated server and stdio RPC checks.
 
-The example fixes the row cap at 100 and cache TTL at 60 seconds so its checks
-are reproducible. See the [README](../README.md#json-rpc-methods) for settings and
-[development guide](development.md) for automated checks.
+## Prepare for interactive testing
 
-## Run the walkthrough
+With Python 3.11+, uv, and Make installed, run from the repository root:
 
-```bash
-uv run python - <<'PY'
-import os
-import subprocess
-import sys
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-from dbridge.protocol.transport.stdio import read_message, write_message
-
-with TemporaryDirectory(prefix="dbridge-manual-") as directory:
-    env = os.environ.copy()
-    env.update(
-        XDG_CONFIG_HOME=directory,
-        APPDATA=directory,
-        dbridge_max_rows="100",
-        dbridge_cache_ttl_seconds="60",
-    )
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "dbridge.server"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        env=env,
-    )
-    request_id = 0
-
-    def rpc(method, params=None):
-        global request_id
-        request_id += 1
-        write_message(proc.stdin, {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": "dbridge/" + method,
-            "params": {} if params is None else params,
-        })
-        response = read_message(proc.stdout)
-        assert response is not None, "server exited before responding"
-        assert response["id"] == request_id
-        if "error" in response:
-            raise RuntimeError(response["error"])
-        return response["result"]
-
-    try:
-        assert rpc("listProfiles") == {}
-        for adapter in ("sqlite", "duckdb"):
-            name = "manual-" + adapter
-            uri = str(Path(directory) / (name + ".db"))
-            assert rpc("saveProfile", {
-                "name": name, "adapter": adapter, "config": {"uri": uri},
-            })["ok"]
-            assert name in rpc("listProfiles")
-            sid = rpc("connect", {"profile": name})["session_id"]
-
-            def query(sql):
-                return rpc("execute", {"session_id": sid, "sql": sql})
-
-            query("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT)")
-            query("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id))")
-            query("INSERT INTO users VALUES (1, 'alice', 'alice@example.com')")
-            query("INSERT INTO orders VALUES (1, 1)")
-
-            assert rpc("listDatabases", {"session_id": sid})
-            assert rpc("listSchemas", {"session_id": sid})
-            assert set(rpc("listTables", {"session_id": sid})) == {"users", "orders"}
-            schema = rpc("getTableSchema", {"session_id": sid, "fqn": "users"})
-            assert [c["name"] for c in schema["columns"]] == ["id", "name", "email"]
-            if adapter == "sqlite":
-                assert schema["primary_keys"] == ["id"]
-                orders = rpc("getTableSchema", {"session_id": sid, "fqn": "orders"})
-                assert orders["foreign_keys"][0]["referenced_table"] == "users"
-
-            result = query("SELECT id, name FROM users ORDER BY id")
-            assert result["columns"] == ["id", "name"]
-            assert result["rows"] == [[1, "alice"]]
-
-            items = rpc("complete", {"session_id": sid, "sql": "SELECT * FROM "})
-            assert any(i["kind"] == "table" and i["label"] == "users" for i in items)
-            items = rpc("complete", {
-                "session_id": sid, "sql": "SELECT \nFROM users", "position": 7,
-            })
-            assert {i["label"] for i in items} == {"id", "name", "email"}
-            assert all(i["kind"] == "column" for i in items)
-            assert any(i["kind"] == "keyword" for i in rpc("complete", {
-                "session_id": sid, "sql": "",
-            }))
-
-            result = query(
-                "WITH RECURSIVE s(n) AS "
-                "(SELECT 1 UNION ALL SELECT n+1 FROM s WHERE n<150) SELECT n FROM s"
-            )
-            assert result["row_count"] == 100
-            assert any("truncated" in warning for warning in result["warnings"])
-            assert rpc("getERD", {"session_id": sid})["status"] == "not_implemented"
-
-            query("CREATE TABLE products (id INTEGER)")
-            assert rpc("refreshSchema", {"session_id": sid})["ok"]
-            assert "products" in rpc("listTables", {"session_id": sid})
-            assert rpc("disconnect", {"session_id": sid})["ok"]
-
-            sid = rpc("connect", {"profile": name})["session_id"]
-            assert query("SELECT id, name FROM users ORDER BY id")["rows"] == [[1, "alice"]]
-            assert rpc("disconnect", {"session_id": sid})["ok"]
-            assert rpc("deleteProfile", {"name": name})["ok"]
-            assert name not in rpc("listProfiles")
-            print(adapter + ": Profile, Session, schema, query, completion, cap, and persistence checks passed")
-    finally:
-        proc.stdin.close()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-            raise
-        proc.stdout.close()
-    assert proc.returncode == 0
-PY
+```console
+make manual-prepare
 ```
 
-## What this verifies
+This uses `uv run` to sync project dependencies and runs the existing
+[sample generator](../scripts/make_sample_db.py) using
+[examples/sample.sql](../examples/sample.sql). It leaves these Git-ignored files
+available after the command exits:
 
-- Profile CRUD and connect-by-Profile use the public RPCs and isolated config.
-- Each adapter can create, query, and introspect a file-backed database.
-- Columns retain their requested order and writes survive reconnecting.
-- Table completion, multiline SELECT completion with a byte offset, and keyword
-  fallback operate through the server process.
-- A result larger than the configured cap carries a truncation warning.
-- Refresh happens after DDL and makes new metadata visible.
-- The ERD endpoint remains an explicit placeholder; DuckDB constraint extraction
-  is not assumed to be implemented.
-- Closing stdin lets the server exit cleanly.
+| Adapter | Database file |
+|---|---|
+| `sqlite` | `examples/sample.db` |
+| `duckdb` | `examples/sample.duckdb` |
 
-This is a smoke check, not exhaustive protocol validation. For additional manual
-cases, follow the same temporary-data and subprocess-cleanup pattern.
+Both databases contain 8 customers, 10 products, 10 orders, and 220 order items.
+The fixture includes foreign keys, NULL and empty-string values, and enough rows
+to demonstrate the default 100-row response cap.
+
+**Running `make manual-prepare` again replaces both databases and discards any
+changes you made to them.** Disconnect Sessions using these files before
+rebuilding. Preparation does not start the server or create or modify Profiles.
+
+Configure your client to launch `uv run python -m dbridge.server` from the
+repository root. Connect with the adapter and the database's absolute path. For
+example, these are the parameters for `dbridge/connect` (replace the path):
+
+```json
+{
+  "adapter": "sqlite",
+  "config": {"uri": "/absolute/path/to/dbridge/examples/sample.db"}
+}
+```
+
+For DuckDB, use `"adapter": "duckdb"` and the absolute path to `sample.duckdb`.
+To persist a named Profile, use your client's Profile UI or `dbridge/saveProfile`
+with the same adapter/config and a name; Profile management belongs to the RPCs.
+
+Without Make, the equivalent preparation command is
+`uv run python scripts/make_sample_db.py`.
+
+## Interactive checks
+
+Connect to each sample database and try these checks in your client:
+
+| Check | Expected result |
+|---|---|
+| Browse tables | `customers`, `products`, `orders`, and `order_items` appear. |
+| Run `SELECT id, name, email FROM customers ORDER BY id` | Eight rows; columns remain in that order. Chidi's email is NULL and Fatima's is an empty string. |
+| Run `SELECT * FROM order_items ORDER BY id` | With the default 100-row cap, 100 rows and a truncation warning. |
+| Request completion after `SELECT * FROM ` | Sample table names are offered. |
+| Inspect `orders` metadata | SQLite reports its primary key and the foreign key to `customers`. DuckDB constraint extraction remains unimplemented. |
+
+Disconnect your Sessions when finished. The sample files remain available for
+later use; rerun `make manual-prepare` when you want to reset them. See the
+[README](../README.md#json-rpc-methods) for supported RPCs and settings.
+
+## Automated tests
+
+```console
+make test
+make test-cov
+make test PYTEST_ARGS="tests/adapters -q"
+```
+
+`make test-cov` enforces the existing 85% coverage floor. Plain `make` or
+`make help` lists the available commands. See the
+[development guide](development.md) for direct uv commands and additional checks.
+
+The suite includes [stdio subprocess tests](../tests/test_e2e_stdio.py). Use it
+for automated protocol checks; no Python harness needs to be copied from this guide.

@@ -42,6 +42,10 @@ completion and client presentation defects.
 Progress is demonstrated by actual protocol and client scenarios, including
 cross-repository integration when a user-visible flow spans both.
 
+Local verification tooling now provides `make manual-prepare` for reusable sample
+databases and `make test` / `make test-cov` for automated checks. See the
+[manual guide](manual-testing-guide.md). The daily-use outcomes above remain open.
+
 ## 2. Responsive queries and larger results
 
 Choose and implement the [concurrent execution model](backlog/012-concurrent-execution.md),

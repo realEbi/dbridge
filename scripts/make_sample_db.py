@@ -4,7 +4,9 @@ Produces examples/sample.db (sqlite) and examples/sample.duckdb, so both
 registered adapters can be exercised against the same schema. Both are
 generated and gitignored; sample.sql is the source of truth.
 
-    uv run python scripts/make_sample_db.py
+    make manual-prepare
+
+Or without Make: uv run python scripts/make_sample_db.py
 """
 
 from __future__ import annotations

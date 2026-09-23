@@ -123,7 +123,7 @@ workflow commands, type/lint checks, verification, and release details.
 - [Current architecture](docs/architecture.md) — implemented structure and limits
 - [Roadmap](docs/roadmap.md) — future direction and dependencies
 - [Backlog](docs/backlog/README.md) — individual deferred ideas and defects
-- [Manual testing](docs/manual-testing-guide.md) — a runnable stdio client example
+- [Manual testing](docs/manual-testing-guide.md) — sample preparation and interactive checks
 - [Domain vocabulary](CONTEXT.md) and [architectural decisions](docs/adr/)
 - [Agent workflow and document ownership](AGENTS.md)
 - [Capability specs](openspec/specs/) and [OpenSpec changes](openspec/changes/)

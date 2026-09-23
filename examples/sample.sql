@@ -6,7 +6,7 @@
 --   * foreign keys, for JOIN completion and the future ERD extractor
 --   * more than max_rows (100) in one table, to show truncation
 --
--- Rebuild with:  uv run python scripts/make_sample_db.py
+-- Rebuild with:  make manual-prepare (replaces both generated databases)
 
 PRAGMA foreign_keys = ON;
 

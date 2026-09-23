@@ -14,7 +14,24 @@ uv run python -m dbridge.server
 ```
 
 The server reads framed messages from stdin; it is not an interactive SQL prompt.
-See the [manual guide](manual-testing-guide.md) for a runnable client example.
+See the [manual guide](manual-testing-guide.md) for reusable sample databases and
+interactive client checks.
+
+With Make installed, these shortcuts are available from the repository root:
+
+```console
+make help
+make manual-prepare                         # rebuild persistent sample databases
+make test                                   # automated suite
+make test-cov                               # suite with the 85% coverage gate
+make test PYTEST_ARGS="tests/adapters -q"    # focused run
+```
+
+`manual-prepare` syncs dependencies through `uv run` and replaces
+`examples/sample.db` and `examples/sample.duckdb`; changes made to those samples
+are discarded. It does not change Profiles. Plain `make` shows help.
+Override `UV` if needed (for example, `make test UV=/path/to/uv`), and pass extra
+pytest arguments with `PYTEST_ARGS`. The direct commands remain available:
 
 ```console
 uv run --group test pytest
