@@ -182,13 +182,100 @@ For a documentation/tooling change with no requirement changes, set
 under the standard schema. Follow the current CLI instructions rather than
 creating placeholder artifacts to make a progress counter green.
 
+### Planning
+
+Explore, propose, and revise plans in the original checkout on its current branch.
+Do not create a worktree for planning. Drafts stay local while the user reviews
+and revises them. When the artifacts are complete, ask "Is this plan final?"
+unless the user has already declared it final. Proposing alone does not authorize
+publication or implementation. A later revision before apply follows the same
+finalization flow; revisions discovered during apply belong in the topic worktree
+and its implementation PR.
+
+Declaring a plan final authorizes committing its plan-only paths, pushing a
+`plan/<change>` branch, opening its PR, and merging that PR after the required
+checks pass. Plan-only paths are the selected change directory and directly
+related planning edits, such as marking its backlog item planned and linking the
+change. Inspect the actual hunks: implementation edits and unrelated changes are
+excluded even if they share a file with a planning edit. Implementation PR merges,
+tags, and releases still need a separate instruction.
+
+1. Fetch the selected target (`dbridge-2.0` by default) and inspect the original
+   branch, HEAD, upstream, index, working tree, and commits ahead of the target.
+   Delivery requires the current branch to be the PR target branch, no unpushed
+   commits except this plan's, and no staged changes outside its plan-only edits.
+   Record the state and the plan-only paths before writing. If a precondition
+   fails, report it and ask how to proceed; do not switch branches, reset, rebase,
+   stash, or publish unrelated work. A plan finalized on a non-target branch stays
+   there for the [apply transfer fallback](#start-or-resume), without a plan PR
+   from that branch. Unrelated unstaged or untracked files may remain and must be
+   preserved; do not stage them.
+2. Review and stage only the selected plan-only paths or hunks, then inspect
+   `git diff --cached` and commit on the current branch. Do not use `git add .`.
+   Validate the plan with `openspec validate <change> --strict` and check
+   both `git diff --check` and `git diff --cached --check` before committing.
+   Inspect all commits and the complete diff against the fetched target, not just
+   the latest commit, to confirm the
+   plan branch will contain only this plan's edits.
+3. Push that same commit to a uniquely named plan branch without switching the
+   checkout or changing its upstream, then open the PR. For example, substitute
+   the selected change and target and write a reviewed PR description first:
+
+   ```sh
+   change_name=example-change
+   target_branch=dbridge-2.0
+   plan_branch="plan/$change_name"
+   plan_head=$(git rev-parse HEAD)
+   git push origin "HEAD:refs/heads/$plan_branch"
+   gh pr create --base "$target_branch" --head "$plan_branch" \
+     --title "Plan $change_name" --body-file /path/to/plan-pr-body.md
+   ```
+
+   Reuse an existing PR only after verifying it belongs to this plan and its diff
+   remains plan-only. Never force-push over another branch's work.
+4. Wait for required checks on the PR's current head. Inspect its base, head,
+   full diff, and mergeability again before merging. For the selected PR number:
+
+   ```sh
+   gh pr checks <number> --required --watch --fail-fast
+   gh pr view <number> --json baseRefName,headRefName,headRefOid,mergeable
+   gh pr diff <number>
+   gh pr merge <number> --merge --match-head-commit "$plan_head"
+   ```
+
+   Run the merge only when required checks have passed, the head still matches
+   the reviewed commit, the diff is exactly the plan-only edits, and GitHub
+   reports it mergeable. Pending or unknown results require waiting; failing
+   checks, conflicts, or any other diff stop delivery and must be reported.
+   Leave a failing PR open. Do not bypass protection or use squash/rebase: a merge
+   commit preserves the local plan commit as an ancestor of the target.
+5. Confirm GitHub reports the PR as `MERGED` with the intended base and head, then
+   fetch the target. Recheck that the original branch and HEAD still match the
+   target branch and post-commit `plan_head`, all local plan commits are now
+   ancestors of the fetched target, and the index and unrelated files are
+   unchanged. Run
+   `git pull --ff-only origin "$target_branch"` in the original checkout. Verify
+   HEAD equals the fetched target and ahead/behind counts are both zero. With
+   no unrelated files the checkout is now clean; otherwise they remain as they
+   were. If identity changed or fast-forward would overwrite local files, leave
+   the checkout unchanged and report it. Do not reset, stash, or rebase to make
+   the refresh fit. This planning refresh permits the previously recorded
+   unrelated files; implementation refresh uses the stricter conditions below.
+6. After confirmed merge and successful fast-forward, verify the remote plan
+   branch still points at the merged PR head and delete it with
+   `git push origin --delete "$plan_branch"`. If it has advanced, retain it and
+   report the new work. This flow creates no local plan branch to delete.
+
+A cold apply session fetches the PR target and finds the finalized plan there.
+The topic worktree starts from that target with no plan transfer. The workflow is
+instruction-based; these checks do not create a filesystem write barrier.
+
 ## Worktree and PR lifecycle
 
 Applying a plan starts or resumes a separate topic worktree. The original checkout
 is the user's stable repository location; keep its current branch, files, index,
 and local commits intact. This also applies when the plan was written there.
-Prefer creating new plans in their eventual topic worktree so they need no later
-transfer. Proposing a plan alone does not authorize implementation or publishing.
+[Planning](#planning) delivers finalized plans to the PR target before apply.
 
 ### Start or resume
 
@@ -226,8 +313,9 @@ discarding existing work. Never force a second checkout of a branch. A detached
 original checkout or missing upstream does not prevent isolated work, but must
 be recorded and prevents automatic post-merge refresh.
 
-If the selected plan exists only in the original checkout, copy its change
-directory and only necessary related edits into the topic worktree. Inspect
+Finalized plans normally already exist on the fetched PR target. Only if the
+selected plan is absent there, copy its local change directory and only necessary
+related edits into the topic worktree as a fallback. Inspect
 committed and uncommitted content before transferring; cherry-pick only commits
 whose entire diff belongs to this change, otherwise transfer reviewed paths or
 hunks. Preserve the original files, commits, and index. Do not copy unrelated
@@ -281,7 +369,9 @@ releases; do not infer their authorization from applying a plan or opening a PR.
 
 ### Refresh after merge
 
-After an authorized merge, confirm GitHub reports the intended PR as `MERGED`.
+These conditions govern implementation PRs; plan PRs use the finalization flow
+in [Planning](#planning). After an authorized implementation merge, confirm GitHub
+reports the intended PR as `MERGED`.
 Then fetch the recorded original checkout and inspect it again. Substitute the
 recorded absolute path and selected upstream in these commands:
 

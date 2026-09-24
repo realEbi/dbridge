@@ -49,12 +49,20 @@ edits. A tracked change with no requirement changes uses `skip_specs: true` in
 its `.openspec.yaml`; do not invent product requirements for documentation work.
 
 - Explore uncertain scope; propose one coherent outcome with a descriptive
-  kebab-case name. Create change scaffolds with the OpenSpec CLI.
+  kebab-case name. Create change scaffolds with the OpenSpec CLI. Planning
+  (explore, propose, and revisions before apply) happens in the original checkout
+  on its current branch; do not create a worktree for planning.
 - Put requirements and testable scenarios in the change's delta specs, technical
   choices in its design, and the only implementation checklist in `tasks.md`.
   Include design when the schema's conditions apply.
-- Review the artifacts, then apply the requested implementation. Update the
-  planning artifacts when discoveries change the agreed scope or approach.
+- When the artifacts are complete, ask whether the plan is final unless the user
+  has already declared it final. Finalization authorizes delivery of the change
+  directory and directly related planning edits through a plan-only PR: commit
+  in place, push the same commit as `plan/<change>`, merge with a merge commit
+  after required checks pass, then fast-forward locally. Follow the preconditions
+  and failure handling in [Planning](docs/development.md#planning).
+- Review the artifacts, then apply the requested implementation. Plan revisions
+  discovered during apply stay in its topic worktree and implementation PR.
 - Verify each task before checking it off. New unrelated findings go into
   individual backlog files, with evidence and the owning repository.
 - Before completion, update every affected document in the ownership table.
@@ -81,8 +89,9 @@ Do not switch it, stash its changes, or implement there as part of apply.
   (`origin/dbridge-2.0` by default), not from incidental original-checkout commits.
   Resume an existing change worktree only after checking its identity and state.
 - Keep worktrees outside the original checkout, preferably under
-  `../.worktrees/<change>/<repo>`. Transfer only the selected local plan and its
-  required related edits when they are absent from the target. Preserve their
+  `../.worktrees/<change>/<repo>`. Finalized plans normally already exist on the
+  fetched PR target. Only when the selected plan is absent there, transfer its
+  local directory and required related edits as a fallback. Preserve their
   originals and keep unrelated work out of the topic branch.
 - Run implementation, verification, documentation updates, and OpenSpec commands
   inside the owning worktree, including spec synchronization and archive before
@@ -91,12 +100,14 @@ Do not switch it, stash its changes, or implement there as part of apply.
 - A request to apply a plan authorizes scoped commits, pushing the topic branch,
   and creating or updating its GitHub PR after verification. Review the final
   diff and report the PR and checks. An explicit user restriction overrides this
-  standing authorization. Merging, tags, and releases still require a separate
-  user instruction.
-- After GitHub confirms an authorized merge, fetch and refresh the recorded
-  original checkout only when its branch, HEAD, and upstream still match the
-  record, it is on the PR target, it is clean (including untracked files), and it
-  has no commits ahead of the upstream. Pull with `--ff-only`; never automatically
+  standing authorization. Implementation merges, tags, and releases still
+  require a separate user instruction. Declaring a plan final authorizes only
+  its plan-only PR merge, after required checks pass and GitHub reports it
+  mergeable; any other diff, failing checks, or conflicts stop that delivery.
+- After GitHub confirms an authorized implementation merge, fetch and refresh
+  the recorded original checkout only when its branch, HEAD, and upstream still
+  match the record, it is on the PR target, it is clean (including untracked
+  files), and it has no commits ahead of the upstream. Pull with `--ff-only`; never automatically
   merge, rebase, reset, or stash to make it fit. Otherwise leave it unchanged and
   report the exact condition. Do not switch another current branch to the target.
 - Remove a topic worktree only after confirmed merge and after checking that it
@@ -152,9 +163,10 @@ paired worktree and PR for each owner; integration checks must use those worktre
 Use `uv run python -m dbridge.server` to start, `uv run --group test pytest` for
 the server suite, and `uv run --group test pytest --cov` for the gated run. See
 [development instructions](docs/development.md) for other checks and release
-details. Preserve unrelated user changes. Outside the standing apply authorization
-above, committing and publishing require the user's instruction; merges, tags, and
-releases always require a separate instruction.
+details. Preserve unrelated user changes. Outside the standing apply and plan
+finalization authorizations above, committing and publishing require the user's
+instruction. Implementation merges, tags, and releases always require a separate
+instruction.
 
 ## Custom Instructions
 <!-- This section is for human and agent-maintained operational knowledge.

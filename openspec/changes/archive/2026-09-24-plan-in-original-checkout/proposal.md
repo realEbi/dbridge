@@ -51,7 +51,7 @@ step simply does not trigger when the plan is on the PR target. Branch protectio
 settings are unchanged.
 
 No backlog item or roadmap outcome applies. This refines the archived
-[adopt-worktree-change-delivery](../archive/2026-09-24-adopt-worktree-change-delivery/proposal.md)
-and [check-repository-policy-before-apply](../archive/2026-09-24-check-repository-policy-before-apply/proposal.md)
+[adopt-worktree-change-delivery](../2026-09-24-adopt-worktree-change-delivery/proposal.md)
+and [check-repository-policy-before-apply](../2026-09-24-check-repository-policy-before-apply/proposal.md)
 changes. Only this repository changes. Client repositories keep their own
 workflow policy.
