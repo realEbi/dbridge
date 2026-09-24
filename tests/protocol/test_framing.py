@@ -1,9 +1,8 @@
 import io
-import json
 
 import pytest
 
-from dbridge.protocol.transport.stdio import read_message, write_message
+from dbridge.protocol.transport.stdio import FrameError, read_message, write_message
 
 
 def test_round_trip():
@@ -49,23 +48,40 @@ def test_content_length_header_is_matched_case_insensitively():
     assert read_message(io.BytesIO(raw))["id"] == 8
 
 
-def test_header_block_without_content_length_returns_none():
+def test_header_block_without_content_length_is_fatal():
     """Headers that end without a Content-Length yield None rather than hanging."""
     raw = b"Content-Type: application/json\r\n\r\n"
-    assert read_message(io.BytesIO(raw)) is None
+    assert read_message(io.BytesIO(raw)) == FrameError("missing Content-Length", True)
 
 
-def test_truncated_body_currently_raises():
-    """A frame whose body is shorter than its Content-Length raises.
+def test_truncated_body_is_fatal():
+    raw = b'Content-Length: 100\r\n\r\n' + b'{"jsonrpc"'
+    assert read_message(io.BytesIO(raw)) == FrameError("truncated frame body", True)
 
-    This pins *current* behavior, not desired behavior: the JSONDecodeError
-    propagates out of read_message and through StdioTransport.serve, ending the
-    server loop. Recorded as a backlog item; when that is addressed, this test
-    changes with it.
-    """
-    raw = b"Content-Length: 100\r\n\r\n" + b'{"jsonrpc"'
-    with pytest.raises(json.JSONDecodeError):
-        read_message(io.BytesIO(raw))
+
+@pytest.mark.parametrize("length", [b"nope", b"-1", b"1.5"])
+def test_invalid_content_length_is_fatal(length):
+    error = read_message(io.BytesIO(b"Content-Length: " + length + b"\r\n\r\n"))
+    assert isinstance(error, FrameError) and error.fatal
+
+
+@pytest.mark.parametrize("body", [b"{", b"\xff"])
+def test_unparseable_body_preserves_next_frame(body):
+    stream = io.BytesIO(b"Content-Length: 1\r\n\r\n" + body)
+    stream.seek(0, 2)
+    write_message(stream, {"id": 7, "result": "café"})
+    stream.seek(0)
+    assert read_message(stream) == FrameError("frame body is not valid UTF-8 JSON", False)
+    assert read_message(stream)["result"] == "café"
+
+
+def test_short_reads_are_accumulated_by_byte_length():
+    class ShortReads(io.BytesIO):
+        def read(self, size=-1):
+            return super().read(min(size, 2))
+    body = '{"result":"☕"}'.encode()
+    stream = ShortReads(b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+    assert read_message(stream) == {"result": "☕"}
 
 
 def test_two_messages_read_sequentially_from_one_stream():

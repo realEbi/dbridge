@@ -1,4 +1,7 @@
 import os
+import io
+import select
+import time
 import subprocess
 import sys
 
@@ -335,3 +338,65 @@ def test_e2e_explicit_scope_contract_and_recovery(adapter, tmp_path):
     finally:
         _stop(proc)
     assert proc.returncode == 0
+
+
+def _read_bounded(proc, timeout=5):
+    assert select.select([proc.stdout], [], [], timeout)[0], "server reply timed out"
+    return read_message(proc.stdout)
+
+
+def test_e2e_truncated_frame_exits_cleanly_with_diagnostic(tmp_path):
+    env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "APPDATA": str(tmp_path)}
+    proc = subprocess.Popen([sys.executable, "-m", "dbridge.server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    try:
+        stdout, stderr = proc.communicate(b'Content-Length: 100\r\n\r\n{', timeout=5)
+        assert proc.returncode == 0
+        assert b'truncated frame body' in stderr
+        assert b'Traceback' not in stderr
+        assert read_message(io.BytesIO(stdout)) is None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+
+
+def test_e2e_invalid_json_reply_then_valid_request(tmp_path):
+    env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "APPDATA": str(tmp_path)}
+    proc = _spawn(env)
+    try:
+        proc.stdin.write(b'Content-Length: 1\r\n\r\n{')
+        proc.stdin.flush()
+        response = _read_bounded(proc)
+        assert response['id'] is None and response['error']['code'] == -32700
+        write_message(proc.stdin, {'jsonrpc': '2.0', 'id': 2, 'method': 'dbridge/listProfiles'})
+        assert _read_bounded(proc) == {'jsonrpc': '2.0', 'id': 2, 'result': {}}
+    finally:
+        _stop(proc)
+    assert proc.returncode == 0
+
+
+def test_e2e_close_input_during_long_duckdb_query_exits_promptly(tmp_path):
+    env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "APPDATA": str(tmp_path)}
+    proc = subprocess.Popen([sys.executable, "-m", "dbridge.server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    try:
+        write_message(proc.stdin, {'jsonrpc': '2.0', 'id': 1, 'method': 'dbridge/connect', 'params': {'adapter': 'duckdb'}})
+        sid = _read_bounded(proc)['result']['session_id']
+        write_message(proc.stdin, {'jsonrpc': '2.0', 'id': 2, 'method': 'dbridge/execute', 'params': {'session_id': sid, 'sql': 'SELECT sum(hash(i)) FROM range(20000000000) t(i)'}})
+        # A fast later response proves intake continues while execute is outstanding.
+        write_message(proc.stdin, {'jsonrpc': '2.0', 'id': 3, 'method': 'dbridge/listProfiles'})
+        assert _read_bounded(proc)['id'] == 3
+        started = time.monotonic()
+        proc.stdin.close()
+        proc.stdin = None
+        stdout, stderr = proc.communicate(timeout=4)
+        assert proc.returncode == 0
+        assert time.monotonic() - started < 3
+        assert b'Traceback' not in stderr
+        frames = io.BytesIO(stdout)
+        while (frame := read_message(frames)) is not None:
+            assert isinstance(frame, dict)
+            assert frame['id'] == 2 and frame['error']['code'] == -32004
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()

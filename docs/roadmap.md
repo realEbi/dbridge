@@ -16,10 +16,10 @@ queries, schema browsing, SQL assistance, and relationship exploration through
 one protocol. Keep the Transport / Core Engine / Adapters boundaries, put
 database-specific behavior in Adapters, and keep presentation in clients.
 
-The intended execution model supports responsive, concurrent work and bounded
-result delivery. Async orchestration is a candidate from the original vision;
-the driver strategy and migration design still need a decision. The stdio client
-path should remain supported as the system evolves.
+Async orchestration now supports responsive, concurrent work and cancellation
+through the stdio client path. [ADR-0003](adr/0003-async-orchestration.md) records
+the execution model and provisional async Adapter contract. Bounded result
+delivery remains future work; the response cap still follows materialization.
 
 dbridge remains a query and introspection tool. ORM/query-builder behavior,
 database migrations, database permission administration, and bulk ETL are outside
@@ -64,19 +64,27 @@ Profile rename and DuckDB constraints remain open; this milestone is not complet
 
 ## 2. Responsive queries and larger results
 
-Choose and implement the [concurrent execution model](backlog/012-concurrent-execution.md),
-then introduce [large-result delivery](backlog/013-large-results.md),
-[notifications](backlog/010-server-notifications.md), and
-[cancellation](backlog/009-query-cancellation.md) with explicit resource lifetimes.
-Resolve cursors versus pagination/streaming before standardizing the wire shape.
+The [concurrent execution model](backlog/012-concurrent-execution.md) and server
+[cancellation](backlog/009-query-cancellation.md) are implemented: one asyncio loop
+coordinates Adapter-owned lanes, different Sessions run concurrently, DuckDB
+metadata can overlap a query, and request ids correlate replies in completion
+order. Disconnect drains Session work; shutdown has a bounded grace period with
+explicit abandonment for a driver that cannot stop. The linked
+[client change](https://github.com/realEbi/dbridge.nvim/tree/dbridge-2.0/openspec/changes/archive/2026-09-24-cancel-outstanding-query)
+owns the editor cancel command and shared flow verification.
+
+[Large-result delivery](backlog/013-large-results.md) and
+[server-to-client notifications](backlog/010-server-notifications.md) remain open.
+Resolve cursors versus pagination/streaming and resource lifetimes before
+standardizing their wire shapes. This milestone is not complete.
 
 [Transactions](backlog/014-transactions.md) and
 [bound parameters](backlog/049-query-parameters.md) extend query control. They need
 their own behavioral decisions and do not all depend on adopting asyncio.
 Server-held [active scope selection](backlog/048-session-scope-selection.md) was
 rejected in favor of explicit per-request metadata paths; it is no longer future
-work. Revisit [ADR-0001](adr/0001-sync-core-for-phase-1.md) when the execution model
-changes.
+work. [ADR-0003](adr/0003-async-orchestration.md) supersedes the earlier synchronous
+execution decision; further changes must account for cancellation and ordering.
 
 ## 3. Broader database support
 
@@ -85,6 +93,9 @@ Bring [MySQL](backlog/019-mysql-adapter.md),
 [Snowflake](backlog/021-snowflake-adapter.md) onto the supported Adapter interface;
 evaluate [BigQuery](backlog/042-bigquery-adapter.md) separately. Each adapter needs
 real integration evidence, clear type/metadata limits, and dependency isolation.
+MySQL will use a native async driver and validate ADR-0003's provisional async
+Adapter cancellation contract before that contract is considered proven for
+native drivers.
 
 Extend metadata where useful through [indexes](backlog/047-index-introspection.md)
 and [functions](backlog/044-function-completion.md). Consider

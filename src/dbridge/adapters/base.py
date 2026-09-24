@@ -67,6 +67,14 @@ class QueryResult:
 
 
 class DBAdapter(ABC):
+    """Database operations are awaitable; declarations remain synchronous.
+
+    Cancelling an awaited operation must stop that operation without affecting
+    other requests and leave the Session usable. Interrupted work propagates
+    ``asyncio.CancelledError``; work already completed or not interruptible may
+    return its normal result. Native async drivers implement this contract using
+    their own cancellation mechanism.
+    """
     adapter_name: str
 
     def __init__(self, config: dict[str, str]) -> None:
@@ -74,31 +82,38 @@ class DBAdapter(ABC):
         self.config = config
 
     @abstractmethod
-    def connect(self) -> None: ...
+    async def connect(self) -> None: ...
 
     @abstractmethod
-    def disconnect(self) -> None: ...
+    async def disconnect(self) -> None: ...
+
+    def abandon(self) -> None:
+        """Release request waiters when bounded process shutdown expires.
+
+        Native async implementations can override this last-resort cleanup hook.
+        Thread-backed implementations leave driver cleanup to daemon workers.
+        """
 
     @abstractmethod
-    def execute(self, sql: str) -> QueryResult: ...
+    async def execute(self, sql: str) -> QueryResult: ...
 
     @abstractmethod
     def scope_levels(self) -> list[ScopeLevel]: ...
 
     @abstractmethod
-    def default_scope(self) -> ScopePath: ...
+    async def default_scope(self) -> ScopePath: ...
 
     @abstractmethod
-    def list_databases(self) -> list[ContainerEntry]: ...
+    async def list_databases(self) -> list[ContainerEntry]: ...
 
     @abstractmethod
-    def list_schemas(self, path: ScopePath) -> list[ContainerEntry]: ...
+    async def list_schemas(self, path: ScopePath) -> list[ContainerEntry]: ...
 
     @abstractmethod
-    def list_tables(self, path: ScopePath) -> list[TableEntry]: ...
+    async def list_tables(self, path: ScopePath) -> list[TableEntry]: ...
 
     @abstractmethod
-    def get_table_schema(self, table: TableRef) -> TableSchema: ...
+    async def get_table_schema(self, table: TableRef) -> TableSchema: ...
 
     @abstractmethod
     def dialect_name(self) -> str: ...

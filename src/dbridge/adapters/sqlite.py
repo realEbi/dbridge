@@ -4,7 +4,6 @@ import time
 from dbridge.adapters.base import (
     ColumnDef,
     ContainerEntry,
-    DBAdapter,
     ForeignKey,
     QueryResult,
     ScopeLevel,
@@ -14,6 +13,7 @@ from dbridge.adapters.base import (
     TableSchema,
 )
 from dbridge.adapters.identifiers import quote_identifier
+from dbridge.adapters.threaded import ThreadBackedAdapter
 from dbridge.exceptions import AdapterConnectionError, AdapterQueryError
 
 # A small dialect keyword set is enough for tier-1 completion.
@@ -25,7 +25,7 @@ _SQLITE_KEYWORDS = [
 ]
 
 
-class SqliteAdapter(DBAdapter):
+class SqliteAdapter(ThreadBackedAdapter):
     adapter_name = "sqlite"
 
     def __init__(self, config: dict[str, str]) -> None:
@@ -36,7 +36,7 @@ class SqliteAdapter(DBAdapter):
         self.uri = uri
         self.con: sqlite3.Connection | None = None
 
-    def connect(self) -> None:
+    def _connect(self) -> None:
         try:
             # isolation_level=None puts the driver in autocommit mode. Without it
             # sqlite3 opens an implicit transaction before every INSERT/UPDATE/
@@ -47,16 +47,24 @@ class SqliteAdapter(DBAdapter):
         except sqlite3.Error as e:
             raise AdapterConnectionError(str(e)) from e
 
-    def disconnect(self) -> None:
+    def _disconnect(self) -> None:
         if self.con is not None:
             self.con.close()
             self.con = None
+
+    def _interrupt(self, lane: str) -> None:
+        if self.con is not None:
+            self.con.interrupt()
+
+    def _is_interruption(self, error: BaseException) -> bool:
+        cause = error.__cause__ if isinstance(error, AdapterQueryError) else error
+        return isinstance(cause, sqlite3.Error) and getattr(cause, "sqlite_errorcode", None) == sqlite3.SQLITE_INTERRUPT
 
     def _cur(self) -> sqlite3.Cursor:
         assert self.con is not None, "adapter not connected"
         return self.con.cursor()
 
-    def execute(self, sql: str) -> QueryResult:
+    def _execute(self, sql: str) -> QueryResult:
         start = time.perf_counter()
         try:
             cur = self._cur()
@@ -74,18 +82,18 @@ class SqliteAdapter(DBAdapter):
     def scope_levels(self) -> list[ScopeLevel]:
         return [ScopeLevel(name="namespace", label="Namespace")]
 
-    def default_scope(self) -> ScopePath:
-        databases = self.list_databases()
+    def _default_scope(self) -> ScopePath:
+        databases = self._list_databases()
         return (next(entry.name for entry in databases if entry.name == "main"),)
 
-    def list_databases(self) -> list[ContainerEntry]:
+    def _list_databases(self) -> list[ContainerEntry]:
         try:
             rows = self._cur().execute("PRAGMA database_list").fetchall()
         except sqlite3.Error as e:
             raise AdapterQueryError(str(e)) from e
         return [ContainerEntry(name=row[1], internal=row[1] == "temp") for row in rows]
 
-    def list_schemas(self, path: ScopePath) -> list[ContainerEntry]:
+    def _list_schemas(self, path: ScopePath) -> list[ContainerEntry]:
         self._namespace(path)
         return []
 
@@ -95,7 +103,7 @@ class SqliteAdapter(DBAdapter):
             raise AdapterQueryError("SQLite requires a one-component Scope Path")
         return path[0]
 
-    def list_tables(self, path: ScopePath) -> list[TableEntry]:
+    def _list_tables(self, path: ScopePath) -> list[TableEntry]:
         cur = self._cur()
         namespace = quote_identifier(self._namespace(path))
         try:
@@ -107,7 +115,7 @@ class SqliteAdapter(DBAdapter):
         except sqlite3.Error as e:
             raise AdapterQueryError(str(e)) from e
 
-    def get_table_schema(self, table: TableRef) -> TableSchema:
+    def _get_table_schema(self, table: TableRef) -> TableSchema:
         namespace = self._namespace(table.path)
         cur = self._cur()
         identifier = f"{quote_identifier(namespace)}.{quote_identifier(table.name)}"

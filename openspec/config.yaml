@@ -5,8 +5,9 @@ context: |
   Read AGENTS.md for workflow and document ownership, CONTEXT.md for vocabulary,
   docs/architecture.md for implemented behavior, and relevant docs/adr/ decisions.
   Read docs/roadmap.md and the relevant docs/backlog/ item for future work.
-  The current server is synchronous with SQLite and DuckDB; future architecture
-  requires an explicit change and must not be described as already implemented.
+  The server uses asyncio orchestration with Adapter-owned SQLite and DuckDB
+  execution lanes, cancellation, and bounded shutdown. ADR-0003 supersedes ADR-0001.
+  Future architecture requires an explicit change; distinguish plans from implementation.
   The server owns the DSP contract. Client repositories own editor/UI behavior.
   Apply plans in separate topic worktrees; preserve the original checkout.
   Follow AGENTS.md and docs/development.md for PR delivery and post-merge refresh.

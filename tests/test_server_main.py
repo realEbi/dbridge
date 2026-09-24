@@ -7,7 +7,10 @@ replaced via monkeypatch so they are restored even if an assertion fails —
 writing protocol frames to the real stdout would corrupt pytest's own output.
 """
 import io
+import os
 import sys
+import threading
+import select
 
 from dbridge.protocol.transport.stdio import read_message, write_message
 from dbridge.server import main
@@ -21,21 +24,33 @@ class _FakeStd:
 
 
 def _run_main(monkeypatch, requests):
-    stdin = io.BytesIO()
-    for request in requests:
-        write_message(stdin, request)
-    stdin.seek(0)
-    stdout = io.BytesIO()
+    input_read, input_write = os.pipe()
+    output_read, output_write = os.pipe()
+    captured = io.BytesIO()
+    failures = []
+    with os.fdopen(input_read, "rb") as stdin, os.fdopen(input_write, "wb") as client_in, \
+         os.fdopen(output_read, "rb") as client_out, os.fdopen(output_write, "wb") as stdout:
+        def client():
+            try:
+                for request in requests:
+                    write_message(client_in, request)
+                    assert select.select([client_out], [], [], 3)[0], "server response timed out"
+                    write_message(captured, read_message(client_out))
+            except BaseException as exc:
+                failures.append(exc)
+            finally:
+                client_in.close()
 
-    real_stdout = sys.stdout
-    monkeypatch.setattr(sys, "stdin", _FakeStd(stdin))
-    monkeypatch.setattr(sys, "stdout", _FakeStd(stdout))
-
-    main()
-
-    assert sys.stdout is not real_stdout, "main() must not write to the real stdout"
-    stdout.seek(0)
-    return stdout
+        monkeypatch.setattr(sys, "stdin", _FakeStd(stdin))
+        monkeypatch.setattr(sys, "stdout", _FakeStd(stdout))
+        thread = threading.Thread(target=client, daemon=True)
+        thread.start()
+        main()
+        thread.join(4)
+        assert not thread.is_alive()
+        assert not failures, failures
+    captured.seek(0)
+    return captured
 
 
 def test_main_wires_engine_dispatcher_and_transport(monkeypatch):

@@ -11,7 +11,16 @@ The MySQL adapter is parked against an older interface.
 
 ## Desired outcome
 
-Port execution and introspection to DBAdapter, select the driver for the chosen execution model, and verify real MySQL behavior with optional dependencies.
+Port execution and introspection to the async DBAdapter interface using a native
+async MySQL driver, chosen and verified during this work. Validate ADR-0003's
+provisional cancellation contract with real MySQL: cancelling one operation stops
+its work, leaves the Session usable, and cannot interrupt another request. Keep
+the driver optional and verify real execution, introspection, and cleanup.
+
+The native driver must implement these guarantees without requiring the Engine
+to know its cancellation mechanism. That validation is an explicit milestone 3
+outcome; the current SQLite/DuckDB thread-backed implementations alone do not
+prove the interface for native async drivers.
 
 ## Notes and references
 

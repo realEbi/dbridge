@@ -7,31 +7,74 @@ Use the [glossary](../CONTEXT.md) for domain terminology and the
 
 ## Execution model
 
-The server is synchronous. It supports multiple live Sessions in one process,
-but handles one request at a time. A long query blocks subsequent requests in
-that process until it returns.
+Transport, Dispatcher, and Core Engine run on one asyncio event loop. A blocking
+reader thread continues accepting framed input while request tasks await database
+work. Replies carry their request id and are written on the loop in completion
+order, so a fast request can overtake an earlier slow one without interleaving
+frames. An outstanding id cannot be reused until its reply is written.
 
 ```text
-Client
-  |
-  | stdin/stdout, Content-Length framing, UTF-8 JSON
-  v
-StdioTransport.serve
-  --> Dispatcher.handle
-        --> Engine
-              --> Session / SchemaRegistry / completion / executor
-                    --> DBAdapter
-                          --> sqlite3 or duckdb
-  <-- one response after the handler finishes
+Client stdin --> reader thread --> asyncio loop: Dispatcher request tasks
+                                      --> Engine / SchemaRegistry / completion
+                                            --> async DBAdapter
+                                                  --> Adapter-owned lanes
+Client stdout <-- complete replies on the loop     --> sqlite3 or duckdb
 ```
 
-The evidence is the direct call in
-[`StdioTransport.serve`](../src/dbridge/protocol/transport/stdio.py), ordinary
-methods in [`Engine`](../src/dbridge/core/engine.py), and blocking `fetchall()`
-in the [SQLite](../src/dbridge/adapters/sqlite.py) and
-[DuckDB](../src/dbridge/adapters/duckdb.py) adapters. The runtime has no async
-event loop or background query executor. [ADR-0001](adr/0001-sync-core-for-phase-1.md)
-records this decision and remains applicable until superseded.
+A Lane is one daemon thread and FIFO job queue owning a driver connection. SQLite
+uses one Lane and retains its driver same-thread check. DuckDB uses a query Lane
+and a metadata Lane whose sibling cursor comes from the query connection, so
+attached catalogs remain visible. Different Sessions run independently. Executes
+on one Session keep arrival order; uncached SQLite metadata queues behind its
+queries, while DuckDB metadata can run alongside them. Clients wait for an execute
+reply before requesting metadata that must reflect that statement's effects.
+DuckDB's sibling cursor does not share the query connection's `USE` state or
+temporary objects. The query Lane publishes replacement snapshots of its default
+Scope Path and temporary-table metadata after connecting and after execute,
+including effects of earlier statements when a later statement fails or is
+cancelled. Metadata reads use those snapshots for temporary objects, preserving
+Session-local state without accessing the busy query connection. Snapshot
+discovery after SQL has finished is protected from late cancellation, so it
+cannot replace an already-established query outcome.
+
+Database-touching Adapter methods are coroutines; `scope_levels`, `dialect_name`,
+and `get_keywords` remain synchronous declarations. Cache hits, completion parsing,
+and small Profile file operations run directly on the loop. A cache hit does not
+wait for database work. The Core Engine owns no driver threads or interrupts.
+
+`$/cancelRequest` cancels the task registered under its JSON-RPC id. Adapter lanes
+remove queued work or interrupt the currently running job while holding the same
+lock used to change the current job, so a late cancel cannot reach the next job.
+Interrupted work replies with `QUERY_CANCELLED`; completed or non-interruptible
+work keeps its normal result. Cancels for unknown/completed ids or malformed
+params are ignored. The Session remains usable after cancellation; effects of
+earlier completed statements are retained.
+
+Disconnect marks a Session closing, rejects new work with `SESSION_NOT_FOUND`,
+cancels and drains its outstanding requests, then closes its Adapter. Once
+disconnect starts closing, cancellation of the disconnect request does not
+reverse the lifecycle change: it finishes cleanup and returns its normal outcome.
+Concurrent disconnects share that cleanup. End of input
+and fatal framing errors start the same bounded shutdown: cancel all requests,
+drain them, and close Sessions within `SHUTDOWN_GRACE_SECONDS` (currently one
+second, a module constant). If a driver ignores interruption past the deadline,
+the server logs incomplete cleanup, abandons its daemon lanes, releases awaiters,
+and exits successfully. Driver connection cleanup is attempted if that worker
+later returns; it cannot be guaranteed for a driver that never returns. Replies
+produced during shutdown are written only while the output pipe remains usable.
+
+A complete body containing invalid UTF-8 JSON returns `PARSE_ERROR` with a null id,
+and the next frame is still accepted. A truncated body or invalid/missing
+`Content-Length` logs a diagnostic and shuts down cleanly. Framing continues to
+count encoded bytes, and diagnostics stay off stdout.
+
+[ADR-0003](adr/0003-async-orchestration.md) supersedes the Phase 1 synchronous
+execution decision in [ADR-0001](adr/0001-sync-core-for-phase-1.md). The async Adapter
+contract remains provisional until a native async MySQL driver validates it.
+Implementation lives in [Transport](../src/dbridge/protocol/transport/stdio.py),
+[Dispatcher](../src/dbridge/protocol/handlers.py), [Engine](../src/dbridge/core/engine.py),
+and the shared [Lane](../src/dbridge/adapters/lane.py) and
+[thread-backed Adapter base](../src/dbridge/adapters/threaded.py).
 
 ## Boundaries and source map
 
@@ -81,9 +124,8 @@ Results contain ordered `columns`, positional `rows`, `row_count`,
 `execution_time_ms`, and `warnings`.
 
 SQLite connects in autocommit mode so writes survive disconnect/reconnect. The
-protocol exposes no explicit begin/commit/rollback methods. Streaming, query
-cancellation, server-side cursors, and server-to-client notifications are not
-implemented.
+protocol exposes no explicit begin/commit/rollback methods. Streaming, server-side cursors, and server-to-client notifications remain
+unimplemented. Request cancellation is described above.
 
 Execution accepts SQL without a Scope Path and retains the database engine's SQL
 resolution rules. Sending a metadata Scope Path does not change the driver's
@@ -113,7 +155,10 @@ the full literal request path; metadata uses an immutable `TableRef(name, path)`
 Scope Levels and a default Scope Path. Its declaration is authoritative over the
 connect-time copy. Query execution does not invalidate caches after DDL or
 `ATTACH`; clients refresh to rebuild their metadata view. There is no persistent
-or shared cache.
+or shared cache. Cache refresh increments a generation: a fetch started before
+refresh can still return to its original requester, but cannot repopulate the
+cache afterward. Cancelled fetches do not store results. Concurrent misses fetch
+independently so cancelling one does not cancel another request's metadata.
 
 `listTables` returns entries containing a literal `name` and an Adapter-owned
 `sql_identifier`. `getTableSchema` requires top-level `path` and `name` parameters
@@ -130,7 +175,8 @@ columns but currently returns empty primary/foreign key lists. `getERD` requires
 full Scope Path and returns `{"status": "not_implemented", "tables": [...]}`
 with that path's table entries.
 
-Completion uses an optional UTF-8 byte offset `position`, which defaults to the
+Completion awaits table and column lookups; sqlglot parsing stays synchronous on
+the event loop. Completion uses an optional UTF-8 byte offset `position`, which defaults to the
 end of `sql`. Unquoted qualified column positions such as `p.` and `p.na` are
 resolved against physical FROM/JOIN sources in the cursor's SELECT scope. A
 temporary cursor marker lets sqlglot parse the unfinished column without losing

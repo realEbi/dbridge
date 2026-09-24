@@ -1,21 +1,21 @@
 # 052 - Survive a malformed or truncated protocol frame
 
 - Repo: dbridge
-- Status: deferred
-- Change: none
+- Status: done
+- Change: [server](../../openspec/changes/archive/2026-09-24-adopt-async-orchestration/proposal.md)
 - Origin: Observed while raising test coverage ([archived change](../../openspec/changes/archive/2026-09-12-raise-test-coverage/proposal.md)).
 
 ## Problem / opportunity
 
-`read_message` in
-[transport/stdio.py](../../src/dbridge/protocol/transport/stdio.py) reads exactly
-`Content-Length` bytes and calls `json.loads` on the result with no guard. A
-frame whose body is shorter than its declared length, or whose body is not valid
-JSON, raises `json.JSONDecodeError`. Nothing catches it: it propagates out of
-`read_message`, out of `StdioTransport.serve`'s loop, and terminates the server
-process. The client sees its child exit rather than an error response.
+Before this change, `read_message` in
+[transport/stdio.py](../../src/dbridge/protocol/transport/stdio.py) read exactly
+`Content-Length` bytes and called `json.loads` without a guard. A frame whose
+body was shorter than its declared length, or whose body was not valid JSON,
+raised `json.JSONDecodeError`. It propagated out of `read_message` and
+`StdioTransport.serve`, terminating the server process. The client saw its child
+exit rather than an error response.
 
-Evidence:
+Historical reproduction before the fix:
 
 ```console
 $ python -c "
@@ -25,10 +25,10 @@ read_message(io.BytesIO(b'Content-Length: 100\r\n\r\n{\"jsonrpc\"'))"
 json.decoder.JSONDecodeError: Expecting ':' delimiter: line 1 column 11 (char 10)
 ```
 
-`Dispatcher.handle` already degrades gracefully for a well-formed frame carrying
-a semantically invalid request, returning `INVALID_REQUEST`. The gap is one
-layer below, in framing. `PARSE_ERROR` (-32700) is defined for exactly this case
-and is currently never emitted (see [050](050-unused-dsp-error.md)).
+`Dispatcher.handle` already returned `INVALID_REQUEST` for well-framed but
+semantically invalid requests. The missing handling was one layer below, in
+framing. `PARSE_ERROR` (-32700) was defined for exactly this case
+but was not emitted (see [050](050-unused-dsp-error.md)).
 
 ## Desired outcome
 
@@ -46,7 +46,11 @@ protocol frames.
 
 [transport/stdio.py](../../src/dbridge/protocol/transport/stdio.py),
 [protocol/errors.py](../../src/dbridge/protocol/errors.py) (`PARSE_ERROR`).
-`tests/protocol/test_framing.py::test_truncated_body_currently_raises` pins the
-current behavior and changes with the fix. Low practical urgency while the only
-client is a trusted local child process; it matters more for
+The old `test_truncated_body_currently_raises` regression is replaced by explicit
+recoverable/fatal framing tests. Complete invalid UTF-8 JSON receives
+`PARSE_ERROR` and the next request is served; invalid or missing lengths and
+truncated bodies log a diagnostic and take the bounded shutdown path. stdout
+remains reserved for framed replies. In-process and subprocess checks verify
+recovery, diagnostics, complete frames, and clean exit; the linked change is archived.
+The same distinction remains relevant to future
 [network transports](022-transport-selection.md).

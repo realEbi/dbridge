@@ -44,11 +44,13 @@ Source = "https://github.com/realebi/dbridge"
 
 [dependency-groups]
 dev = ["ruff", "black", "isort", "pyright", "pytest", "ipython"]
-test = ["coverage[toml]", "pytest", "pytest-cov"]
-types = ["mypy>=1.0.0"]
+test = ["coverage[toml]", "pytest", "pytest-cov", "pytest-asyncio"]
+types = ["mypy>=1.0.0", "pytest-asyncio"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 # Coverage is deliberately not in addopts: a focused single-test run would then
 # always fail the fail_under gate. Use `pytest --cov` for the gated run.
 addopts = "-ra"

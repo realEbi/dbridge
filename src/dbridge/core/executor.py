@@ -2,8 +2,8 @@ from dbridge.adapters.base import QueryResult
 from dbridge.core.session import Session
 
 
-def execute(session: Session, sql: str, max_rows: int) -> QueryResult:
-    result = session.adapter.execute(sql)
+async def execute(session: Session, sql: str, max_rows: int) -> QueryResult:
+    result = await session.adapter.execute(sql)
     if len(result.rows) > max_rows:
         truncated = result.rows[:max_rows]
         result = QueryResult(
