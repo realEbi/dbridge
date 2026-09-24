@@ -9,7 +9,9 @@ context: |
   execution lanes, cancellation, and bounded shutdown. ADR-0003 supersedes ADR-0001.
   Future architecture requires an explicit change; distinguish plans from implementation.
   The server owns the DSP contract. Client repositories own editor/UI behavior.
-  Apply plans in separate topic worktrees; preserve the original checkout.
+  Plan in the original checkout; finalized plans are delivered to the PR target.
+  Apply in separate topic worktrees; preserve the original checkout and transfer
+  a local plan only as a fallback when it is absent from the fetched PR target.
   Follow AGENTS.md and docs/development.md for PR delivery and post-merge refresh.
 
 rules:
@@ -29,11 +31,11 @@ rules:
 operations:
   apply:
     guidance:
-      - Before editing, record the original checkout and use a topic worktree from the fetched PR target (origin/dbridge-2.0 by default); transfer only the selected local plan and required related edits.
+      - Before editing, record the original checkout and use a topic worktree from the fetched PR target (origin/dbridge-2.0 by default), which normally already contains the finalized plan; only when the selected plan is absent there, transfer its local directory and required related edits as a fallback.
       - Keep one implementation checklist in the change; record unrelated findings in docs/backlog/.
       - Match verification to risk and isolate test databases, Profile files, and subprocesses.
       - Complete verification, documentation, spec synchronization, and archive in the worktree; applying a plan authorizes scoped commits, topic push, and a GitHub PR unless the user restricts delivery.
-      - Merge only on a separate user instruction; after confirmed merge, refresh the recorded original checkout only under the clean, unchanged, zero-ahead fast-forward conditions in AGENTS.md.
+      - Merge implementation PRs only on a separate user instruction; after confirmed merge, refresh the recorded original checkout only under the clean, unchanged, zero-ahead fast-forward conditions in AGENTS.md.
   archive:
     guidance:
       - Check affected current architecture, roadmap, glossary, ADR, usage, and example updates before completion.
