@@ -45,7 +45,7 @@
 
 ## 7. Cross-repository integration
 
-- [ ] 7.1 Open the linked `dbridge.nvim` change in that repository (owner: `dbridge.nvim`) covering reading levels/default path/dialect from connect, sending a Scope Path per metadata call, re-reading the declaration on refresh, and dropping `.database`/`.schema`; verify this change's proposal links it and that no edit is made to that repository from here
+- [ ] 7.1 Open the linked `dbridge.nvim` change in that repository (owner: `dbridge.nvim`) covering reading levels/default path/dialect from connect, sending a Scope Path per metadata call, re-reading the declaration on refresh, and dropping `.database`/`.schema`; verify this change's proposal links it, that the client change lives in `dbridge.nvim/openspec/`, and that client edits follow that repository's AGENTS.md and are committed there separately
 - [ ] 7.2 Verify the shared flow against a DuckDB Session with a second catalog attached: browse both catalogs, complete in each, and execute a completed identifier unedited — following `docs/manual-testing-guide.md`, updating it if the demonstrated steps change
 - [ ] 7.3 Verify the shared flow against a SQLite Session with an attached namespace, confirming the client tree renders one container tier and `main/main` is gone
 

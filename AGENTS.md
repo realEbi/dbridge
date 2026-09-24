@@ -69,10 +69,24 @@ Auxiliary engineering skills may assist within this workflow. Do not create
 separate phase PRDs, duplicate task trackers, or skill-specific implementation
 plans. Read relevant history from Git when needed.
 
-This repository owns server behavior and the DSP contract. Client repositories
-own editor/UI behavior. For cross-repository work, name the owners, link the
-changes, define compatibility, and verify the shared flow; a client-only idea in
-this backlog does not authorize editing that client.
+## Cross-repository work
+
+This repository owns server behavior and the DSP contract. Client repositories own
+editor/UI behavior. That ownership does not change: server specs never describe
+editor presentation, and client specs never restate the protocol contract.
+
+A session may be rooted above both repositories and may edit either one. Editing a
+repository requires its own linked OpenSpec change in its own `openspec/`, and that
+repository's AGENTS.md governs every file under it — reading order, guardrails,
+verification commands, and coverage gates. OpenSpec resolves by nearest root, so run
+its commands from inside the repository they target, and keep each repository's
+planning artifacts, backlog items, and commits in that repository.
+
+Naming a backlog item owned elsewhere still does not by itself authorize editing that
+repository; the linked change does. For cross-repository work, name each owner, link
+the corresponding changes, define protocol compatibility, and verify the shared flow
+with the owning repository's tooling. Commit each repository separately, and only with
+the user's authorization.
 
 ## Engineering conventions
 
