@@ -250,7 +250,7 @@ class FakeAdapter(ThreadBackedAdapter):
     def _is_interruption(self, error):
         return isinstance(error, InterruptedError)
 
-    def _execute(self, sql):
+    def _execute(self, sql, *, row_limit=None):
         self._record("execute")
         return QueryResult([], [], 0, 0)
 
@@ -307,7 +307,7 @@ async def test_disconnect_cancellation_still_closes_connections_and_stops_thread
     lanes = dict(adapter._lanes)
     started, release = threading.Event(), threading.Event()
 
-    def query(sql):
+    def query(sql, *, row_limit=None):
         started.set()
         assert release.wait(3)
         return QueryResult([], [], 0, 0)

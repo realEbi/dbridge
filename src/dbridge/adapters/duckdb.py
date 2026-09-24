@@ -83,18 +83,20 @@ class DuckDBAdapter(ThreadBackedAdapter):
         assert self._metadata is not None, "adapter not connected"
         return self._metadata
 
-    def _execute(self, sql: str) -> QueryResult:
+    def _execute(self, sql: str, *, row_limit: int | None = None) -> QueryResult:
         start = time.perf_counter()
         try:
             assert self.con is not None, "adapter not connected"
             rel = self.con.execute(sql)
             columns = [d[0] for d in rel.description] if rel.description else []
-            rows = [list(r) for r in rel.fetchall()]
+            rows = [list(r) for r in (rel.fetchall() if row_limit is None else rel.fetchmany(row_limit))]
         except Exception as e:
             raise AdapterQueryError(str(e)) from e
         finally:
             # A sibling cursor has its own USE state. Publish the query lane's
             # discovery scope, including effects before a later statement fails.
+            # These queries also replace the query connection's pending result,
+            # releasing a partly read statement before the Lane job completes.
             try:
                 self._capture_session_metadata()
             except Exception:

@@ -1,7 +1,11 @@
 from dataclasses import asdict
 import json
+from unittest.mock import AsyncMock
+
+import pytest
 
 from dbridge.adapters.base import ScopeLevel, ScopePath, TableRef, TableSchema
+from dbridge.adapters.sqlite import SqliteAdapter
 
 
 def test_scope_level_has_a_stable_name_and_display_label():
@@ -25,3 +29,15 @@ def test_table_ref_is_a_literal_hashable_cache_key():
     cache = {dotted: "dotted", separate: "separate"}
     assert cache[TableRef(name="orders", path=("catalog.with.dot", "main"))] == "dotted"
     assert cache[TableRef(name="orders", path=("catalog", "with.dot"))] == "separate"
+
+
+@pytest.mark.parametrize("row_limit", [0, -1])
+async def test_invalid_row_limit_is_rejected_before_submitting_a_lane_job(monkeypatch, row_limit):
+    adapter = SqliteAdapter({"uri": ":memory:"})
+    run = AsyncMock()
+    monkeypatch.setattr(adapter, "_run", run)
+
+    with pytest.raises(ValueError, match="row_limit must be at least 1"):
+        await adapter.execute("SELECT 1", row_limit=row_limit)
+
+    run.assert_not_awaited()

@@ -1,9 +1,4 @@
-"""Result truncation.
-
-Proven end-to-end through a spawned server, but the cap, the row_count, and the
-warning text were never asserted in process. Truncation applies after the
-adapter has materialized the rows (AGENTS.md — Engineering conventions).
-"""
+"""Bounded fetch requests and executor-owned result truncation."""
 from dbridge.adapters.base import QueryResult
 from dbridge.core.executor import execute
 from dbridge.core.session import Session
@@ -15,9 +10,11 @@ class _StubAdapter:
     def __init__(self, result):
         self._result = result
         self.executed = []
+        self.row_limits = []
 
-    async def execute(self, sql):
+    async def execute(self, sql, *, row_limit=None):
         self.executed.append(sql)
+        self.row_limits.append(row_limit)
         return self._result
 
 
@@ -88,3 +85,15 @@ async def test_sql_is_passed_through_to_the_adapter():
     session, _ = _session([[1]])
     await execute(session, "SELECT 1", max_rows=100)
     assert session.adapter.executed == ["SELECT 1"]
+
+
+async def test_executor_requests_one_row_beyond_the_cap():
+    session, _ = _session([[1]])
+    await execute(session, "SELECT 1", max_rows=100)
+    assert session.adapter.row_limits == [101]
+
+
+async def test_negative_cap_still_requests_a_positive_fetch_limit():
+    session, _ = _session([[1]])
+    await execute(session, "SELECT 1", max_rows=-5)
+    assert session.adapter.row_limits == [1]

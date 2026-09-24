@@ -11,16 +11,21 @@ fast and bounded without changing the response shape.
 A successful `dbridge/execute` reply SHALL contain `columns`, `rows`, `row_count`,
 `execution_time_ms`, and `warnings`. `columns` SHALL list result column names in the
 order the statement produced them, and each row SHALL be a list of values in that
-same order. A statement that produces no result set SHALL reply with empty
-`columns` and `rows` and a `row_count` of 0.
+same order. A statement that produces no rows SHALL reply with empty `rows` and
+a `row_count` of 0, preserving any column metadata the database supplies.
+When the database supplies no column metadata, `columns` SHALL be empty.
 
 #### Scenario: Column order follows the statement
 - **WHEN** a client executes `SELECT 2 AS b, 1 AS a` on a Session
 - **THEN** `columns` is `["b", "a"]` and `rows` is `[[2, 1]]`
 
-#### Scenario: Statement without a result set
-- **WHEN** a client executes `CREATE TABLE t (id INTEGER)` on a Session
+#### Scenario: SQLite statement without a result set
+- **WHEN** a client executes `CREATE TABLE t (id INTEGER)` on a SQLite Session
 - **THEN** the reply has empty `columns` and `rows`, `row_count` 0, and no warnings
+
+#### Scenario: DuckDB statement with column metadata and no rows
+- **WHEN** a client executes `CREATE TABLE t (id INTEGER)` on a DuckDB Session
+- **THEN** the reply has `columns` `["Count"]`, empty `rows`, `row_count` 0, and no warnings
 
 ### Requirement: Cap returned rows and report truncation
 

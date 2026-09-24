@@ -86,8 +86,10 @@ class ThreadBackedAdapter(DBAdapter):
         assert lane in self._lanes, "adapter not connected"
         return await self._lanes[lane].run(call)
 
-    async def execute(self, sql: str) -> QueryResult:
-        return await self._run("query", lambda: self._execute(sql))
+    async def execute(self, sql: str, *, row_limit: int | None = None) -> QueryResult:
+        if row_limit is not None and row_limit < 1:
+            raise ValueError("row_limit must be at least 1")
+        return await self._run("query", lambda: self._execute(sql, row_limit=row_limit))
 
     async def default_scope(self) -> ScopePath:
         return await self._run(self.metadata_lane, self._default_scope)
@@ -123,7 +125,7 @@ class ThreadBackedAdapter(DBAdapter):
         """Override when metadata has its own lane."""
 
     @abstractmethod
-    def _execute(self, sql: str) -> QueryResult: ...
+    def _execute(self, sql: str, *, row_limit: int | None = None) -> QueryResult: ...
 
     @abstractmethod
     def _default_scope(self) -> ScopePath: ...

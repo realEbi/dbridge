@@ -21,15 +21,15 @@ class GatedSqlite(SqliteAdapter):
         self.release = threading.Event()
         self.interrupted = False
 
-    def _execute(self, sql):
+    def _execute(self, sql, *, row_limit=None):
         if sql == "slow":
             self.entered.set()
             if not self.release.wait(5):
                 raise TimeoutError("test gate not released")
             if self.interrupted:
                 raise Interrupted
-            return super()._execute("SELECT 1")
-        return super()._execute(sql)
+            return super()._execute("SELECT 1", row_limit=row_limit)
+        return super()._execute(sql, row_limit=row_limit)
 
     def _interrupt(self, lane):
         self.interrupted = True
