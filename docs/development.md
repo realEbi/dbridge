@@ -127,10 +127,31 @@ openspec list --specs
 ```
 
 `openspec/config.yaml` holds shared project guidance. Edit project policy there
-and in the owning documents, not in generated tool integrations. Refresh
-integrations with `openspec update` when intentionally upgrading OpenSpec; review
-that diff and record the new version here. For installation and supported tools,
-see the [OpenSpec project](https://github.com/Fission-AI/OpenSpec).
+and in the owning documents. The apply entry points carry a narrow local extension
+that requires loading and following those instructions before writes or delegation:
+
+- [Codex apply skill](../.agents/skills/openspec-apply-change/SKILL.md)
+- [Claude apply skill](../.claude/skills/openspec-apply-change/SKILL.md)
+- [Claude apply command](../.claude/commands/opsx/apply.md)
+
+Keep that generic preflight and repository completion behavior aligned across all
+three entry points. Branch names, worktree layouts, verification gates, and
+publication policy still belong in this guide, AGENTS.md, and OpenSpec context.
+The extension checks current on-disk instructions and policy from a fetched known
+target before resolving the owning worktree; it is an agent instruction, not a
+filesystem write restriction.
+
+Refresh integrations with `openspec update` when intentionally upgrading OpenSpec;
+review that diff and record the new version here. OpenSpec 1.13.0 replaces whole
+generated files: even a same-version update can replace customized Claude commands
+and skills when it detects command drift, and forced/version updates can replace
+the Codex skill too. Preserve or reapply equivalent repository preflight and
+completion behavior in all three entry points before using the regenerated apply
+workflow. Verify stale local instructions, required worktree setup, nested/other
+repository ownership, explicit user constraints, and CLI blocked-state handling.
+Remove the local extension only when the generator supplies equivalent behavior.
+For installation and supported tools, see the
+[OpenSpec project](https://github.com/Fission-AI/OpenSpec).
 
 ## Working on a change
 
