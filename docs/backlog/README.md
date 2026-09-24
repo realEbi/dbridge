@@ -80,6 +80,7 @@ Relevant source/tests, dependencies, and questions to resolve before planning.
 - [041 - Serve remote clients over TCP](041-tcp-transport.md)
 - [049 - Execute queries with bound parameters](049-query-parameters.md)
 - [052 - Survive a malformed or truncated protocol frame](052-truncated-frame-crashes-loop.md)
+- [056 - Stop fetching rows beyond the row cap](056-bounded-result-fetch.md)
 - [057 - Distinguish a JSON null body from end of input](057-json-null-frame-ends-input.md)
 
 ## Adapters and metadata

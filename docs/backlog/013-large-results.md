@@ -15,7 +15,10 @@ Choose streaming batches, server-side cursors, pagination, or a combination. Def
 
 ## Notes and references
 
-Open question retained: client pagination versus server-side cursors. Coordinate [concurrency](012-concurrent-execution.md), [notifications](010-server-notifications.md), and [cancellation](009-query-cancellation.md).
+Open question retained: client pagination versus server-side cursors.
+Fetching no more than the row cap, without changing the wire shape, is split out
+to [056](056-bounded-result-fetch.md); this item keeps the delivery model for rows
+beyond the cap. Coordinate [concurrency](012-concurrent-execution.md), [notifications](010-server-notifications.md), and [cancellation](009-query-cancellation.md).
 
 The execution model is decided in [ADR-0003](../adr/0003-async-orchestration.md):
 async orchestration with Adapter-owned database concurrency. Cancellation now
