@@ -144,6 +144,140 @@ For a documentation/tooling change with no requirement changes, set
 under the standard schema. Follow the current CLI instructions rather than
 creating placeholder artifacts to make a progress counter green.
 
+## Worktree and PR lifecycle
+
+Applying a plan starts or resumes a separate topic worktree. The original checkout
+is the user's stable repository location; keep its current branch, files, index,
+and local commits intact. This also applies when the plan was written there.
+Prefer creating new plans in their eventual topic worktree so they need no later
+transfer. Proposing a plan alone does not authorize implementation or publishing.
+
+### Start or resume
+
+Record the original absolute path, branch, HEAD, upstream, and status, together
+with the chosen PR target and topic worktree/branch, in the session handoff. These
+are local session details, not machine-specific paths to commit to project docs.
+Inspect existing worktrees before making another one:
+
+```sh
+git status --short --branch --untracked-files=all
+git branch --show-current
+git rev-parse HEAD
+git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'
+git worktree list
+```
+
+The integration target is `origin/dbridge-2.0` unless the user selects another
+target. Fetch it, then branch from its remote tip. Do not use the original HEAD
+as the base: it may include unrelated local planning commits. For example, from
+the original repository, substitute the selected change name:
+
+```sh
+repo_dir=$(git rev-parse --show-toplevel)
+change_name=example-change
+topic_branch="change/$change_name"
+topic_dir="$(dirname "$repo_dir")/.worktrees/$change_name/dbridge"
+git fetch origin
+git worktree add --no-track -b "$topic_branch" "$topic_dir" origin/dbridge-2.0
+cd "$topic_dir"
+```
+
+Use a unique topic name. If the change already has a worktree, verify its branch,
+base, selected plan, and local state, then resume there without replacing or
+discarding existing work. Never force a second checkout of a branch. A detached
+original checkout or missing upstream does not prevent isolated work, but must
+be recorded and prevents automatic post-merge refresh.
+
+If the selected plan exists only in the original checkout, copy its change
+directory and only necessary related edits into the topic worktree. Inspect
+committed and uncommitted content before transferring; cherry-pick only commits
+whose entire diff belongs to this change, otherwise transfer reviewed paths or
+hunks. Preserve the original files, commits, and index. Do not copy unrelated
+plans or generate a replacement plan that loses agreed decisions. If the required
+edits cannot be separated confidently, resolve that scope before implementing.
+
+Run OpenSpec from this worktree so its nearest root is the intended repository.
+All implementation, dependency setup, verification, documentation updates, spec
+synchronization, and archive happen here. Worktrees share Git history but have
+separate working files and environment setup; use the checks documented above.
+
+For server/client changes, use sibling worktrees under the same change directory:
+
+```text
+dbms/.worktrees/<change>/dbridge
+dbms/.worktrees/<change>/dbridge.nvim
+```
+
+Each owner needs its own linked OpenSpec change, verification, commit, and PR.
+Run client integration checks from its worktree against the paired server
+worktree, using the client's documented `DBRIDGE_SERVER_CMD` override if the
+layout differs. Never accidentally test the original server checkout. Follow
+each repository's own development instructions and compatibility/merge order.
+
+### Deliver the PR
+
+An apply request authorizes the scoped commit, topic-branch push, and GitHub PR
+after verification, unless the user explicitly limits delivery. Finish the
+closure steps below, inspect the complete diff against the PR target, and stage
+only intended paths. Reuse the existing topic PR when resuming. A typical delivery
+from the worktree is:
+
+```sh
+git diff --check
+git diff origin/dbridge-2.0...HEAD
+git diff
+git status --short
+git add <explicit-paths>
+git diff --cached
+git commit -m "<describe the change>"
+git push -u origin "$topic_branch"
+gh pr create --base dbridge-2.0 --head "$topic_branch" \
+  --title "<describe the change>" --body-file /path/to/pr-body.md
+```
+
+Set these values explicitly when resuming in a new shell. Use the selected base
+when it differs from `dbridge-2.0`. The PR description explains the result,
+verification, limitations, and any linked owner PR or required merge order.
+Report the PR URL and checks. Merging is a separate user decision, as are tags and
+releases; do not infer their authorization from applying a plan or opening a PR.
+
+### Refresh after merge
+
+After an authorized merge, confirm GitHub reports the intended PR as `MERGED`.
+Then fetch the recorded original checkout and inspect it again. Substitute the
+recorded absolute path and selected upstream in these commands:
+
+```sh
+gh pr view <number> --json state,baseRefName,headRefName,headRefOid,mergeCommit
+git -C "$repo_dir" fetch origin
+git -C "$repo_dir" status --short --branch --untracked-files=all
+git -C "$repo_dir" branch --show-current
+git -C "$repo_dir" rev-parse HEAD
+git -C "$repo_dir" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'
+git -C "$repo_dir" rev-list --left-right --count HEAD...origin/dbridge-2.0
+```
+
+The last output is **ahead, behind**. Refresh only if the recorded branch, HEAD,
+and upstream still match, the branch/upstream are the selected PR target, the
+index and working tree are clean (including untracked files), and ahead is zero.
+Then run `git -C "$repo_dir" pull --ff-only` and verify its HEAD equals the fetched
+upstream. If it was already equal, no pull is necessary. `--ff-only` alone is
+insufficient: an ahead-only branch can report "already up to date" while still
+holding local commits.
+
+If any condition fails, leave the checkout unchanged and report the branch,
+dirty state, or ahead/behind counts that prevented refresh. Keep an original
+checkout on another branch where it is; report that the merged target has been
+fetched. Never automatically merge, rebase, reset, stash, or switch that checkout
+to complete the refresh. Resolving existing local work needs a separate decision.
+
+After confirmed merge, a topic worktree may be removed only when it is clean and
+its HEAD matches the merged PR's `headRefOid`, with no later or
+unpublished work. Check each repository separately. Use `git worktree remove
+<topic-path>` without force. Retain a branch if Git cannot safely delete it with
+`git branch -d`; squash/rebase merges may require a separate cleanup decision.
+Never remove the original checkout or another change's worktree.
+
 ## Completing a change
 
 Apply the [ownership table](../AGENTS.md#documentation-ownership): update usage,

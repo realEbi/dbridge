@@ -8,6 +8,8 @@ context: |
   The current server is synchronous with SQLite and DuckDB; future architecture
   requires an explicit change and must not be described as already implemented.
   The server owns the DSP contract. Client repositories own editor/UI behavior.
+  Apply plans in separate topic worktrees; preserve the original checkout.
+  Follow AGENTS.md and docs/development.md for PR delivery and post-merge refresh.
 
 rules:
   proposal:
@@ -26,8 +28,11 @@ rules:
 operations:
   apply:
     guidance:
+      - Before editing, record the original checkout and use a topic worktree from the fetched PR target (origin/dbridge-2.0 by default); transfer only the selected local plan and required related edits.
       - Keep one implementation checklist in the change; record unrelated findings in docs/backlog/.
       - Match verification to risk and isolate test databases, Profile files, and subprocesses.
+      - Complete verification, documentation, spec synchronization, and archive in the worktree; applying a plan authorizes scoped commits, topic push, and a GitHub PR unless the user restricts delivery.
+      - Merge only on a separate user instruction; after confirmed merge, refresh the recorded original checkout only under the clean, unchanged, zero-ahead fast-forward conditions in AGENTS.md.
   archive:
     guidance:
       - Check affected current architecture, roadmap, glossary, ADR, usage, and example updates before completion.

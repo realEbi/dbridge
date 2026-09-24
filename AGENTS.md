@@ -69,6 +69,39 @@ Auxiliary engineering skills may assist within this workflow. Do not create
 separate phase PRDs, duplicate task trackers, or skill-specific implementation
 plans. Read relevant history from Git when needed.
 
+## Worktrees and PR delivery
+
+Applying an OpenSpec plan uses a separate topic worktree. The original checkout
+stays on its current branch with its files, index, and local commits preserved.
+Do not switch it, stash its changes, or implement there as part of apply.
+
+- Before apply, record the original path, branch, HEAD, upstream, and working-tree
+  status, plus the selected PR target, topic branch, and worktree path in the
+  session handoff. Fetch and create the topic worktree from the remote PR target
+  (`origin/dbridge-2.0` by default), not from incidental original-checkout commits.
+  Resume an existing change worktree only after checking its identity and state.
+- Keep worktrees outside the original checkout, preferably under
+  `../.worktrees/<change>/<repo>`. Transfer only the selected local plan and its
+  required related edits when they are absent from the target. Preserve their
+  originals and keep unrelated work out of the topic branch.
+- Run implementation, verification, documentation updates, and OpenSpec commands
+  inside the owning worktree, including spec synchronization and archive before
+  PR delivery. Follow [development instructions](docs/development.md#worktree-and-pr-lifecycle)
+  for setup, paired repositories, and cleanup.
+- A request to apply a plan authorizes scoped commits, pushing the topic branch,
+  and creating or updating its GitHub PR after verification. Review the final
+  diff and report the PR and checks. An explicit user restriction overrides this
+  standing authorization. Merging, tags, and releases still require a separate
+  user instruction.
+- After GitHub confirms an authorized merge, fetch and refresh the recorded
+  original checkout only when its branch, HEAD, and upstream still match the
+  record, it is on the PR target, it is clean (including untracked files), and it
+  has no commits ahead of the upstream. Pull with `--ff-only`; never automatically
+  merge, rebase, reset, or stash to make it fit. Otherwise leave it unchanged and
+  report the exact condition. Do not switch another current branch to the target.
+- Remove a topic worktree only after confirmed merge and after checking that it
+  has no dirty or unpublished work. Never force cleanup or delete unmerged work.
+
 ## Cross-repository work
 
 This repository owns server behavior and the DSP contract. Client repositories own
@@ -86,7 +119,8 @@ Naming a backlog item owned elsewhere still does not by itself authorize editing
 repository; the linked change does. For cross-repository work, name each owner, link
 the corresponding changes, define protocol compatibility, and verify the shared flow
 with the owning repository's tooling. Commit each repository separately, and only with
-the user's authorization.
+the user's authorization, including the standing apply authorization above. Use a
+paired worktree and PR for each owner; integration checks must use those worktrees.
 
 ## Engineering conventions
 
@@ -116,8 +150,9 @@ the user's authorization.
 Use `uv run python -m dbridge.server` to start, `uv run --group test pytest` for
 the server suite, and `uv run --group test pytest --cov` for the gated run. See
 [development instructions](docs/development.md) for other checks and release
-details. Preserve unrelated user changes; committing, publishing, or releasing
-requires the user's authorization.
+details. Preserve unrelated user changes. Outside the standing apply authorization
+above, committing and publishing require the user's instruction; merges, tags, and
+releases always require a separate instruction.
 
 ## Custom Instructions
 <!-- This section is for human and agent-maintained operational knowledge.
