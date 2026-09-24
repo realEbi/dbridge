@@ -1,8 +1,8 @@
 # 005 - Extract DuckDB primary and foreign keys
 
-- Repo: dbridge
-- Status: deferred
-- Change: none
+- Repo: dbridge, dbridge.nvim
+- Status: planned
+- Change: [server](../../openspec/changes/extract-table-key-constraints/proposal.md), [client](https://github.com/realEbi/dbridge.nvim/tree/dbridge-2.0/openspec/changes/adopt-table-key-constraints)
 - Origin: Legacy backlog 1.5; retained from revision `80d71d4`.
 
 ## Problem / opportunity
