@@ -1,8 +1,8 @@
 # 056 - Stop fetching rows beyond the row cap
 
 - Repo: dbridge
-- Status: deferred
-- Change: none
+- Status: planned
+- Change: [bound-result-fetch](../../openspec/changes/bound-result-fetch/proposal.md)
 - Origin: Exploration of local-database performance after planning
   [adopt-async-orchestration](../../openspec/changes/archive/2026-09-24-adopt-async-orchestration/proposal.md).
 
