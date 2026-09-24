@@ -35,10 +35,18 @@ class ColumnDef:
 
 
 @dataclass
+class PrimaryKey:
+    name: str | None
+    columns: list[str]
+
+
+@dataclass
 class ForeignKey:
-    column: str
+    name: str | None
+    columns: list[str]
+    referenced_path: ScopePath
     referenced_table: str
-    referenced_column: str
+    referenced_columns: list[str]
 
 
 @dataclass(frozen=True)
@@ -52,7 +60,7 @@ class TableSchema:
     name: str
     scope: ScopePath
     columns: list[ColumnDef] = field(default_factory=list)
-    primary_keys: list[str] = field(default_factory=list)
+    primary_key: PrimaryKey | None = None
     foreign_keys: list[ForeignKey] = field(default_factory=list)
     sql_identifier: str | None = None
 

@@ -33,9 +33,12 @@ table, preserve Profiles, refresh metadata, and execute the intended statement.
 
 [Profile renames](backlog/001-profile-rename.md) now replace the old definition in
 one save request, reject collisions without changing stored Profiles, and preserve
-live Sessions through the Neovim edit flow. Remaining core work includes
-[DuckDB constraints](backlog/005-duckdb-constraints.md). The backlog also carries
-completion and client presentation defects.
+live Sessions through the Neovim edit flow. [DuckDB constraints](backlog/005-duckdb-constraints.md)
+now report ordered primary and foreign keys for catalog and temporary tables;
+SQLite reports the same constraint shape, including composite and shorthand
+references. The linked client transport test verifies the new key contract.
+These close the milestone's named core dependencies. Deferred completion and
+client presentation defects remain tracked individually in the backlog.
 
 Progress is demonstrated by actual protocol and client scenarios, including
 cross-repository integration when a user-visible flow spans both.
@@ -63,7 +66,8 @@ of completed identifiers in both engines.
 Type and lint checks are clean and run in the existing CI matrix (`make check`
 locally). Logger reuse preserves one diagnostic handler; see the verified
 [quality-check maintenance change](../openspec/changes/archive/2026-09-23-restore-server-quality-checks/).
-DuckDB constraints remain open; this milestone is not complete.
+The core scenarios above are implemented and verified across server and client;
+the remaining backlog items retain their own scope and priority.
 
 ## 2. Responsive queries and larger results
 

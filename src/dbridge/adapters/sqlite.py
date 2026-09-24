@@ -1,10 +1,12 @@
 import sqlite3
 import time
+from itertools import groupby
 
 from dbridge.adapters.base import (
     ColumnDef,
     ContainerEntry,
     ForeignKey,
+    PrimaryKey,
     QueryResult,
     ScopeLevel,
     ScopePath,
@@ -107,6 +109,10 @@ class SqliteAdapter(ThreadBackedAdapter):
             raise AdapterQueryError("SQLite requires a one-component Scope Path")
         return path[0]
 
+    @staticmethod
+    def _primary_key_columns(rows: list[tuple]) -> list[str]:
+        return [row[1] for row in sorted(rows, key=lambda row: row[5]) if row[5]]
+
     def _list_tables(self, path: ScopePath) -> list[TableEntry]:
         cur = self._cur()
         namespace = quote_identifier(self._namespace(path))
@@ -128,29 +134,41 @@ class SqliteAdapter(ThreadBackedAdapter):
             column_rows = cur.fetchall()
             cur.execute(f"PRAGMA {quote_identifier(namespace)}.foreign_key_list({quote_identifier(table.name)})")
             foreign_rows = cur.fetchall()
+            fks: list[ForeignKey] = []
+            # Pragma rows are column pairs: id identifies a constraint and seq
+            # gives each pair's position within it.
+            ordered_rows = sorted(foreign_rows, key=lambda row: (row[0], row[1]))
+            for _, grouped_rows in groupby(ordered_rows, key=lambda row: row[0]):
+                pairs = list(grouped_rows)
+                parent = pairs[0][2]
+                referenced_columns = [row[4] for row in pairs]
+                if any(column is None for column in referenced_columns):
+                    cur.execute(
+                        f"PRAGMA {quote_identifier(namespace)}.table_info({quote_identifier(parent)})"
+                    )
+                    referenced_columns = self._primary_key_columns(cur.fetchall())
+                fks.append(ForeignKey(
+                    name=None,
+                    columns=[row[3] for row in pairs],
+                    referenced_path=table.path,
+                    referenced_table=parent,
+                    referenced_columns=referenced_columns,
+                ))
         except sqlite3.Error as e:
             raise AdapterQueryError(str(e)) from e
-        columns, pks = [], []
-        for _cid, name, ctype, notnull, dflt, pk in column_rows:
+        columns = []
+        for _cid, name, ctype, notnull, dflt, _pk in column_rows:
             columns.append(
                 ColumnDef(
                     name=name, data_type=ctype or "",
                     nullable=not notnull, default=dflt, comment=None,
                 )
             )
-            if pk:
-                pks.append(name)
-        fks: list[ForeignKey] = []
-        for row in foreign_rows:
-            # row: id, seq, table, from, to, on_update, on_delete, match
-            fks.append(
-                ForeignKey(
-                    column=row[3], referenced_table=row[2], referenced_column=row[4]
-                )
-            )
+        pks = self._primary_key_columns(column_rows)
         return TableSchema(
             name=table.name, scope=table.path,
-            columns=columns, primary_keys=pks, foreign_keys=fks,
+            columns=columns, primary_key=PrimaryKey(name=None, columns=pks) if pks else None,
+            foreign_keys=fks,
             sql_identifier=identifier if columns else None,
         )
 

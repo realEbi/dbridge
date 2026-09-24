@@ -64,7 +64,7 @@ Connect to each sample database and try these checks in your client:
 | Request completion after `SELECT ` with no FROM clause | Dialect keywords such as `FROM` are offered; unrelated table columns are not. |
 | In Neovim, create a TEMP table, then refresh its Profile with `R` | The same Session remains active and the TEMP table is still queryable; the editor shows the active Profile, Adapter, and Session. |
 | Put two SELECT statements in the query editor and use `<leader>s` inside the second | Only the second statement runs. `<leader>r` remains the whole-buffer/visual action. |
-| Inspect `orders` metadata | SQLite reports its primary key and the foreign key to `customers`. DuckDB constraint extraction remains unimplemented. |
+| Inspect `orders` metadata | Both engines report `primary_key.columns: ["id"]` and one foreign key pairing `customer_id` with `customers(id)`. Its `referenced_path` locates `customers` in the same namespace (SQLite) or catalog/schema (DuckDB). SQLite key names are null; DuckDB reports engine names. |
 
 Use matching server and client checkouts: the explicit Scope Path protocol has no
 legacy fallback. Connect reports `levels`, `default_path`, and `dialect`. Metadata

@@ -8,7 +8,7 @@ Scope Path cannot be named. SQLite also reports composite primary-key columns in
 table order instead of key order, and reports a null referenced column when a
 declaration names only the parent table. Fixing the contract now, while no client
 reads foreign keys, keeps MySQL, PostgreSQL, and Snowflake from inheriting a lossy
-shape. See [backlog 005](../../../docs/backlog/005-duckdb-constraints.md).
+shape. See [backlog 005](../../../../docs/backlog/005-duckdb-constraints.md).
 
 ## What Changes
 
@@ -42,11 +42,12 @@ them without changing them.
 
 ## Impact
 
-**Roadmap and backlog.** Resolves [005](../../../docs/backlog/005-duckdb-constraints.md),
-one of the two remaining items of milestone 1 (*Reliable daily use*). The other,
-[001](../../../docs/backlog/001-profile-rename.md), is planned separately in
-`rename-profiles-atomically`. Supplies the constraint metadata
-[ERD extraction (011)](../../../docs/backlog/011-erd-extraction.md) depends on
+**Roadmap and backlog.** Resolves [005](../../../../docs/backlog/005-duckdb-constraints.md),
+the last named core dependency of milestone 1 (*Reliable daily use*), following
+the completed [Profile rename change (001)](../../../../docs/backlog/001-profile-rename.md).
+Deferred completion and client presentation defects retain their own backlog
+scope. Supplies the constraint metadata
+[ERD extraction (011)](../../../../docs/backlog/011-erd-extraction.md) depends on
 without implementing `getERD`. Sets the key shape milestone 3 Adapters implement.
 
 **Repositories.** dbridge owns the contract and Adapter changes. dbridge.nvim has a

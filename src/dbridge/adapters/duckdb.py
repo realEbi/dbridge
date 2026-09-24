@@ -9,6 +9,8 @@ import duckdb
 from dbridge.adapters.base import (
     ColumnDef,
     ContainerEntry,
+    ForeignKey,
+    PrimaryKey,
     QueryResult,
     ScopeLevel,
     ScopePath,
@@ -150,8 +152,37 @@ class DuckDBAdapter(ThreadBackedAdapter):
                 tables[table].columns.append(
                     ColumnDef(name=column, data_type=data_type, nullable=nullable == "YES")
                 )
+        constraints = self.con.execute(
+            "SELECT schema_name, table_name, constraint_type, constraint_name, "
+            "constraint_column_names, referenced_table, referenced_column_names "
+            "FROM duckdb_constraints() WHERE database_name='temp' "
+            "AND constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY') "
+            "ORDER BY schema_name, table_name, constraint_index"
+        ).fetchall()
+        for schema, name, kind, key_name, columns, parent, parent_columns in constraints:
+            self._add_key(tables[TableRef(name, ("temp", schema))],
+                          kind, key_name, columns, parent, parent_columns)
         self._temp_schemas = tuple(ContainerEntry(name=row[0], internal=True) for row in schemas)
         self._temp_tables = MappingProxyType(tables)
+
+    @staticmethod
+    def _add_key(
+        schema: TableSchema,
+        kind: str,
+        name: str | None,
+        columns: list[str],
+        parent: str | None,
+        parent_columns: list[str],
+    ) -> None:
+        if kind == "PRIMARY KEY":
+            schema.primary_key = PrimaryKey(name=name, columns=columns)
+        else:
+            assert parent is not None, "foreign key has no referenced table"
+            # DuckDB 1.1.3 disallows foreign keys across schemas/catalogs.
+            schema.foreign_keys.append(ForeignKey(
+                name=name, columns=columns, referenced_path=schema.scope,
+                referenced_table=parent, referenced_columns=parent_columns,
+            ))
 
     def _default_scope(self) -> ScopePath:
         return self._scope
@@ -233,14 +264,24 @@ class DuckDBAdapter(ThreadBackedAdapter):
                 ColumnDef(name=name, data_type=dtype, nullable=(nullable == "YES"))
                 for name, dtype, nullable in rel.fetchall()
             ]
+            identifier = ".".join(quote_identifier(part) for part in (*table.path, table.name))
+            result = TableSchema(
+                name=table.name, scope=table.path, columns=columns,
+                sql_identifier=identifier if columns else None,
+            )
+            constraints = self._cur().execute(
+                "SELECT constraint_type, constraint_name, constraint_column_names, "
+                "referenced_table, referenced_column_names FROM duckdb_constraints() "
+                "WHERE database_name=? AND schema_name=? AND table_name=? "
+                "AND constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY') "
+                "ORDER BY constraint_index",
+                [catalog, schema, table.name],
+            ).fetchall()
+            for kind, key_name, key_columns, parent, parent_columns in constraints:
+                self._add_key(result, kind, key_name, key_columns, parent, parent_columns)
+            return result
         except Exception as e:
             raise AdapterQueryError(str(e)) from e
-        identifier = ".".join(quote_identifier(part) for part in (*table.path, table.name))
-        return TableSchema(
-            name=table.name, scope=table.path,
-            columns=columns, primary_keys=[], foreign_keys=[],
-            sql_identifier=identifier if columns else None,
-        )
 
     def dialect_name(self) -> str:
         return "duckdb"

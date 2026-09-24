@@ -83,6 +83,53 @@ def test_e2e_connect_execute_disconnect():
         _stop(proc)
 
 
+def test_e2e_table_key_constraints_and_refresh(tmp_path):
+    env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "APPDATA": str(tmp_path)}
+    proc = _spawn(env=env)
+    request_id = 0
+
+    def rpc(method, **params):
+        nonlocal request_id
+        request_id += 1
+        response = _request(proc, {
+            "jsonrpc": "2.0", "id": request_id, "method": "dbridge/" + method,
+            "params": params,
+        })
+        assert response is not None, "server exited before responding"
+        assert response["id"] == request_id
+        assert "error" not in response, response.get("error")
+        return response["result"]
+
+    try:
+        sid = rpc("connect", adapter="sqlite", config={"uri": ":memory:"})["session_id"]
+        rpc("execute", session_id=sid,
+            sql="CREATE TABLE parent (a INTEGER, b INTEGER, PRIMARY KEY (b, a))")
+        rpc("execute", session_id=sid, sql="CREATE TABLE child (x INTEGER, y INTEGER)")
+        schema = rpc("getTableSchema", session_id=sid, path=["main"], name="child")
+        assert schema["primary_key"] is None
+        assert schema["foreign_keys"] == []
+        assert "primary_keys" not in schema
+
+        rpc("execute", session_id=sid, sql="DROP TABLE child")
+        rpc("execute", session_id=sid, sql=(
+            "CREATE TABLE child (x INTEGER, y INTEGER, PRIMARY KEY (y, x), "
+            "FOREIGN KEY (y, x) REFERENCES parent (b, a))"
+        ))
+        assert rpc("getTableSchema", session_id=sid, path=["main"], name="child") == schema
+        assert rpc("refreshSchema", session_id=sid)["ok"] is True
+        refreshed = rpc("getTableSchema", session_id=sid, path=["main"], name="child")
+        assert refreshed["primary_key"] == {"name": None, "columns": ["y", "x"]}
+        assert refreshed["foreign_keys"] == [{
+            "name": None, "columns": ["y", "x"], "referenced_path": ["main"],
+            "referenced_table": "parent", "referenced_columns": ["b", "a"],
+        }]
+        assert "primary_keys" not in refreshed
+        assert rpc("disconnect", session_id=sid) == {"ok": True}
+    finally:
+        _stop(proc)
+    assert proc.returncode == 0
+
+
 def test_e2e_complete():
     proc = _spawn()
     try:

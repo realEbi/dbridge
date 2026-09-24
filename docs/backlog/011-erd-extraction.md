@@ -15,4 +15,8 @@ Build nodes and FK edges from real metadata and define JSON, Mermaid, or DOT out
 
 ## Notes and references
 
-Related: [DuckDB constraints](005-duckdb-constraints.md). Other adapters can be supported incrementally; missing metadata must be explicit.
+SQLite and DuckDB constraint metadata is available through the
+[table-keys contract](../../openspec/specs/table-keys/spec.md), including ordered
+composite keys and referenced Scope Paths; see [005](005-duckdb-constraints.md).
+Graph construction and traversal remain deferred. Other adapters can be supported
+incrementally; missing metadata must be explicit.

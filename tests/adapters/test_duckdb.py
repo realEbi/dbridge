@@ -1,6 +1,6 @@
 import pytest
 
-from dbridge.adapters.base import ContainerEntry, ScopeLevel, TableRef
+from dbridge.adapters.base import ContainerEntry, ForeignKey, PrimaryKey, ScopeLevel, TableRef
 from dbridge.adapters.duckdb import DuckDBAdapter
 from dbridge.adapters.identifiers import quote_identifier
 from dbridge.adapters.registry import INSTALLED_ADAPTERS
@@ -52,6 +52,80 @@ async def test_get_table_schema_nullability(adapter):
     col_map = {c.name: c for c in schema.columns}
     assert col_map["name"].nullable is False
     assert col_map["score"].nullable is True
+
+
+@pytest.mark.parametrize("path", [
+    ("memory", "main"), ("memory", "reporting"),
+    ("side", "main"), ("side", "reporting"),
+])
+async def test_composite_keys_preserve_names_order_and_referenced_scope(adapter, path):
+    catalog, namespace = path
+    if catalog == "side":
+        await adapter.execute("ATTACH ':memory:' AS side")
+    if namespace != "main":
+        await adapter.execute(f"CREATE SCHEMA {catalog}.{namespace}")
+    prefix = f"{catalog}.{namespace}"
+    # Same names in another namespace must not leak their keys into this lookup.
+    await adapter.execute("CREATE SCHEMA decoy")
+    await adapter.execute("CREATE TABLE decoy.parent (wrong INTEGER PRIMARY KEY)")
+    await adapter.execute("CREATE TABLE decoy.child (wrong INTEGER REFERENCES decoy.parent(wrong))")
+    await adapter.execute(
+        f"CREATE TABLE {prefix}.parent (a INTEGER, b INTEGER, PRIMARY KEY (b, a))"
+    )
+    # DuckDB resolves REFERENCES in the current catalog and rejects a catalog
+    # qualifier even when it names the same catalog as the child.
+    await adapter.execute(f"USE {prefix}")
+    await adapter.execute(
+        f"CREATE TABLE {prefix}.child (x INTEGER, y INTEGER, z INTEGER, w INTEGER, "
+        f"FOREIGN KEY (x, y) REFERENCES {namespace}.parent (b, a), "
+        f"FOREIGN KEY (z, w) REFERENCES {namespace}.parent (b, a))"
+    )
+    await adapter.execute("USE memory.main")
+
+    parent = await adapter.get_table_schema(TableRef("parent", path))
+    assert [column.name for column in parent.columns] == ["a", "b"]
+    assert parent.primary_key == PrimaryKey(name="parent_b_a_pkey", columns=["b", "a"])
+    assert parent.foreign_keys == []
+    child_ref = TableRef("child", path)
+    child = await adapter.get_table_schema(child_ref)
+    assert child.primary_key is None
+    assert child.foreign_keys == [
+        ForeignKey("child_x_y_b_a_fkey", ["x", "y"], path, "parent", ["b", "a"]),
+        ForeignKey("child_z_w_b_a_fkey", ["z", "w"], path, "parent", ["b", "a"]),
+    ]
+    assert (await adapter.get_table_schema(child_ref)).foreign_keys == child.foreign_keys
+    for key in child.foreign_keys:
+        referenced = await adapter.get_table_schema(TableRef(key.referenced_table, key.referenced_path))
+        assert referenced == parent
+
+
+async def test_shorthand_foreign_key_reports_resolved_parent_columns(adapter):
+    await adapter.execute("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
+    await adapter.execute("CREATE TABLE child (parent_id INTEGER REFERENCES parent)")
+    schema = await adapter.get_table_schema(TableRef("child", ("memory", "main")))
+    assert schema.foreign_keys == [
+        ForeignKey("child_parent_id_id_fkey", ["parent_id"], ("memory", "main"), "parent", ["id"]),
+    ]
+
+
+@pytest.mark.parametrize("temporary", [False, True])
+async def test_unique_check_and_not_null_constraints_are_not_keys(adapter, temporary):
+    await adapter.execute(
+        f"CREATE {'TEMP ' if temporary else ''}TABLE unique_only "
+        "(a INTEGER NOT NULL, b INTEGER CHECK (b > 0), UNIQUE (a, b))"
+    )
+    path = ("temp" if temporary else "memory", "main")
+    schema = await adapter.get_table_schema(TableRef("unique_only", path))
+    assert schema.primary_key is None
+    assert schema.foreign_keys == []
+
+
+@pytest.mark.parametrize("path", [("memory", "main"), ("temp", "main"), ("missing", "main")])
+async def test_unknown_table_has_no_keys(adapter, path):
+    schema = await adapter.get_table_schema(TableRef("unknown", path))
+    assert schema.columns == []
+    assert schema.primary_key is None
+    assert schema.foreign_keys == []
 
 
 async def test_no_pandas_import():
@@ -338,3 +412,34 @@ async def test_temp_metadata_tracks_create_alter_drop_and_quotes_literal_identif
     missing = await adapter.get_table_schema(TableRef(name, ("temp", "main")))
     assert missing.columns == []
     assert missing.sql_identifier is None
+
+
+async def test_temporary_keys_are_snapshotted_with_order_and_referenced_path(adapter):
+    await adapter.execute("CREATE TEMP TABLE parent (a INTEGER, b INTEGER, PRIMARY KEY (b, a))")
+    await adapter.execute(
+        "CREATE TEMP TABLE child (x INTEGER, y INTEGER, PRIMARY KEY (y, x), "
+        "FOREIGN KEY (x, y) REFERENCES parent (b, a))"
+    )
+    path = ("temp", "main")
+    child_ref = TableRef("child", path)
+    parent = await adapter.get_table_schema(TableRef("parent", path))
+    child = await adapter.get_table_schema(child_ref)
+    assert parent.primary_key == PrimaryKey("parent_b_a_pkey", ["b", "a"])
+    assert child.primary_key == PrimaryKey("child_y_x_pkey", ["y", "x"])
+    assert child.foreign_keys == [
+        ForeignKey("child_x_y_b_a_fkey", ["x", "y"], path, "parent", ["b", "a"]),
+    ]
+    key = child.foreign_keys[0]
+    assert await adapter.get_table_schema(TableRef(key.referenced_table, key.referenced_path)) == parent
+    # Metadata clients receive copies, including the mutable key column lists.
+    child.primary_key.columns.clear()
+    key.columns.clear()
+    key.referenced_columns.clear()
+    fresh = await adapter.get_table_schema(child_ref)
+    assert fresh.primary_key == PrimaryKey("child_y_x_pkey", ["y", "x"])
+    assert fresh.foreign_keys[0].columns == ["x", "y"]
+    assert fresh.foreign_keys[0].referenced_columns == ["b", "a"]
+    await adapter.execute("DROP TABLE child; CREATE TEMP TABLE child (x INTEGER, y INTEGER)")
+    recreated = await adapter.get_table_schema(child_ref)
+    assert recreated.primary_key is None
+    assert recreated.foreign_keys == []
