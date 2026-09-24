@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from dbridge.adapters.base import ScopePath
-from dbridge.config.profiles import ProfileNotFoundError
+from dbridge.config.profiles import ProfileExistsError, ProfileNotFoundError
 from dbridge.core.engine import Engine
 from dbridge.core.session import SessionNotFoundError
 from dbridge.exceptions import (
@@ -54,11 +54,19 @@ class Dispatcher:
             "dbridge/getERD": lambda p: engine.get_erd(p["session_id"], self._path(p)),
             "dbridge/refreshSchema": lambda p: engine.refresh_schema(p["session_id"]),
             "dbridge/listProfiles": lambda p: engine.list_profiles(),
-            "dbridge/saveProfile": lambda p: engine.save_profile(
-                p["name"], p["adapter"], p.get("config", {})
-            ),
+            "dbridge/saveProfile": self._save_profile,
             "dbridge/deleteProfile": lambda p: engine.delete_profile(p["name"]),
         }
+
+    def _save_profile(self, params: dict) -> dict:
+        previous_name = params.get("previous_name")
+        if "previous_name" in params and (
+            not isinstance(previous_name, str) or not previous_name
+        ):
+            raise InvalidRequestError("previous_name requires a nonempty string")
+        return self.engine.save_profile(
+            params["name"], params["adapter"], params.get("config", {}), previous_name,
+        )
 
     def _path(self, params: dict, *, schemas: bool = False) -> ScopePath:
         adapter = self.engine.sessions.get(params["session_id"]).adapter
@@ -198,6 +206,8 @@ class Dispatcher:
             return make_response(req.id, result)
         except ProfileNotFoundError as e:
             return make_error(req.id, errors.PROFILE_NOT_FOUND, f"unknown profile: {e}")
+        except ProfileExistsError as e:
+            return make_error(req.id, errors.PROFILE_ALREADY_EXISTS, f"profile already exists: {e}")
         except InvalidRequestError as e:
             return make_error(req.id, errors.INVALID_REQUEST, str(e))
         except SessionNotFoundError as e:

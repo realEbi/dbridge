@@ -71,6 +71,23 @@ connections. The server owns this file: clients should manage profiles through
 `dbridge/listProfiles` / `dbridge/saveProfile` / `dbridge/deleteProfile` rather
 than editing the TOML themselves.
 
+`dbridge/saveProfile` creates or replaces a Profile under `name`. To rename and
+edit an existing Profile together, send its old name as `previous_name`:
+
+```json
+{"name": "analytics", "previous_name": "warehouse", "adapter": "duckdb", "config": {"uri": "/path/to/data.duckdb"}}
+```
+
+When the names differ, the server replaces the old entry in one file update,
+preserving its position among other Profiles. It rejects an existing destination
+with `PROFILE_ALREADY_EXISTS` (-32007) or a missing source with
+`PROFILE_NOT_FOUND` (-32006), leaving the file unchanged. A supplied
+`previous_name` must be a nonempty string or the request returns
+`INVALID_REQUEST` (-32600). Omitting it, or setting it equal to `name`, keeps the
+create-or-replace behavior. Saving or renaming a Profile does not change any live
+Session. The file update still uses an in-place write; interrupted writes are a
+[separate known limitation](docs/backlog/059-crash-safe-profile-writes.md).
+
 ## JSON-RPC Methods
 
 All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` counts UTF-8
@@ -90,7 +107,7 @@ body bytes). Replies may arrive out of request order; clients correlate them by
 | `dbridge/getERD` | `session_id`, `path` | Placeholder → `{status: "not_implemented", tables: [{name, sql_identifier}]}` |
 | `dbridge/refreshSchema` | `session_id` | Clear all metadata caches → `{ok, levels, default_path}` |
 | `dbridge/listProfiles` | — | Saved profiles → `{name: {adapter, config}}` |
-| `dbridge/saveProfile` | `name`, `adapter`, `config?` | Upsert a profile → `{ok}` |
+| `dbridge/saveProfile` | `name`, `adapter`, `config?`, `previous_name?` | Upsert a Profile, or rename and replace `previous_name` → `{ok}` |
 | `dbridge/deleteProfile` | `name` | Remove a profile → `{ok}` (false if absent) |
 | `$/cancelRequest` | `id` | Notification: cancel an outstanding request; no reply to the notification |
 
@@ -206,6 +223,7 @@ Errors use the JSON-RPC `error` object. The main codes are:
 | -32004 | `QUERY_CANCELLED` | The named request was cancelled |
 | -32005 | `ADAPTER_NOT_SUPPORTED` | The requested Adapter is not registered |
 | -32006 | `PROFILE_NOT_FOUND` | The named Profile does not exist |
+| -32007 | `PROFILE_ALREADY_EXISTS` | A Profile rename would replace another Profile |
 
 A truncated body or an invalid/missing `Content-Length` cannot be safely
 resynchronized. The server logs the framing failure to stderr and follows its

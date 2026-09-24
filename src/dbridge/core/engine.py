@@ -127,8 +127,10 @@ class Engine:
     def list_profiles(self) -> dict:
         return load_profiles()
 
-    def save_profile(self, name: str, adapter: str, config: dict) -> dict:
-        save_profile(name, adapter, config)
+    def save_profile(
+        self, name: str, adapter: str, config: dict, previous_name: str | None = None,
+    ) -> dict:
+        save_profile(name, adapter, config, previous_name=previous_name)
         return {"ok": True}
 
     def delete_profile(self, name: str) -> dict:

@@ -5,7 +5,7 @@ one in `connections.toml`, so the explorer shows one entry while the file holds 
 Saving under a name that already exists silently overwrites that other Profile,
 because `dbridge/saveProfile` is an upsert. The client cannot fix this alone: saving
 the new name and then deleting the old one takes two requests, and a failure between
-them still leaves a duplicate. See [backlog 001](../../../docs/backlog/001-profile-rename.md).
+them still leaves a duplicate. See [backlog 001](../../../../docs/backlog/001-profile-rename.md).
 
 ## What Changes
 
@@ -35,8 +35,8 @@ None.
 
 ## Impact
 
-**Roadmap and backlog.** Resolves [001](../../../docs/backlog/001-profile-rename.md),
-which with [005](../../../docs/backlog/005-duckdb-constraints.md) (planned in
+**Roadmap and backlog.** Resolves [001](../../../../docs/backlog/001-profile-rename.md),
+which with [005](../../../../docs/backlog/005-duckdb-constraints.md) (planned in
 `extract-table-key-constraints`) completes milestone 1 (*Reliable daily use*).
 001 is recorded as a client item; this change adds the server as an owner.
 
