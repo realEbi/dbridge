@@ -1,6 +1,6 @@
 ## Context
 
-See proposal.md for motivation. Since [ADR-0003](../../../docs/adr/0003-async-orchestration.md),
+See proposal.md for motivation. Since [ADR-0003](../../../../docs/adr/0003-async-orchestration.md),
 `DBAdapter.execute(sql)` is a coroutine. `ThreadBackedAdapter.execute` sends
 `_execute(sql)` to the Session's query Lane, where SQLite and DuckDB each run the
 statement and call `fetchall()`. `core/executor.py` is the only production caller;
@@ -103,6 +103,17 @@ naturally becomes smaller. Its documented meaning does not change.
 - `RETURNING` scenarios run on both drivers with 1,000 rows and a limit of 101.
 - One stdio end-to-end check that a capped reply still has the same shape and
   warning.
+- A bounded executor check preserves existing `CREATE TABLE` replies on both
+  engines, including DuckDB's `Count` column metadata with no rows.
+
+### D7. Preserve database-supplied columns when a statement returns no rows
+
+Implementation verification found that `CREATE TABLE` returns empty `columns`
+on SQLite but `["Count"]` on DuckDB, with no rows on either engine. The initial
+new spec incorrectly required empty columns for both. The accepted resolution
+preserves these existing replies and corrects the spec to retain supplied column
+metadata. This keeps the proposal's wire-compatibility promise; no DDL
+classification or normalization is introduced.
 
 ## Risks / Trade-offs
 

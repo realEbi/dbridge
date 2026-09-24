@@ -64,15 +64,19 @@ class SqliteAdapter(ThreadBackedAdapter):
         assert self.con is not None, "adapter not connected"
         return self.con.cursor()
 
-    def _execute(self, sql: str) -> QueryResult:
+    def _execute(self, sql: str, *, row_limit: int | None = None) -> QueryResult:
         start = time.perf_counter()
+        cur: sqlite3.Cursor | None = None
         try:
             cur = self._cur()
             cur.execute(sql)
             columns = [d[0] for d in cur.description] if cur.description else []
-            rows = [list(r) for r in cur.fetchall()]
+            rows = [list(r) for r in (cur.fetchall() if row_limit is None else cur.fetchmany(row_limit))]
         except sqlite3.Error as e:
             raise AdapterQueryError(str(e)) from e
+        finally:
+            if cur is not None:
+                cur.close()
         elapsed = (time.perf_counter() - start) * 1000
         return QueryResult(
             columns=columns, rows=rows, row_count=len(rows),

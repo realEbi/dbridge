@@ -201,29 +201,40 @@ def test_e2e_complete_alias_columns(adapter, tmp_path):
     assert proc.returncode == 0
 
 
-def test_e2e_result_truncation():
-    # Default max_rows is 100; a 150-row generated result must be capped and warned.
-    proc = _spawn()
+@pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
+@pytest.mark.parametrize("max_rows", [3, 100])
+def test_e2e_result_truncation(adapter, max_rows, tmp_path):
+    env = {
+        **os.environ, "XDG_CONFIG_HOME": str(tmp_path), "APPDATA": str(tmp_path),
+        "DBRIDGE_MAX_ROWS": str(max_rows),
+    }
+    proc = _spawn(env=env)
     try:
         resp = _request(proc, {
             "jsonrpc": "2.0", "id": 1, "method": "dbridge/connect",
-            "params": {"adapter": "sqlite", "config": {"uri": ":memory:"}},
+            "params": {"adapter": adapter, "config": {"uri": ":memory:"}},
         })
         sid = resp["result"]["session_id"]
         # Recursive CTE generating 150 rows.
         sql = (
             "WITH RECURSIVE seq(n) AS "
             "(SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < 150) "
-            "SELECT n FROM seq"
+            "SELECT n AS b, -n AS a FROM seq"
         )
         resp = _request(proc, {
             "jsonrpc": "2.0", "id": 2, "method": "dbridge/execute",
             "params": {"session_id": sid, "sql": sql},
         })
-        assert resp["result"]["row_count"] == 100
-        assert any("truncated" in w for w in resp["result"]["warnings"])
+        result = resp["result"]
+        assert set(result) == {"columns", "rows", "row_count", "execution_time_ms", "warnings"}
+        assert result["columns"] == ["b", "a"]
+        assert result["rows"] == [[n, -n] for n in range(1, max_rows + 1)]
+        assert result["row_count"] == max_rows
+        assert result["warnings"] == [f"result truncated to {max_rows} rows"]
+        assert result["execution_time_ms"] >= 0
     finally:
         _stop(proc)
+    assert proc.returncode == 0
 
 
 @pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])

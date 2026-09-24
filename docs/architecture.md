@@ -116,12 +116,21 @@ in `adapters/_parked/` uses an older interface and is neither registered nor
 imported by the registry. DuckDB execution uses native fetch methods without
 pandas; this does not imply pandas has been removed from package dependencies.
 
-Both shipped adapters fully materialize query results. The executor then limits
-the returned rows to `max_rows` (default 100), sets `row_count` to the returned
-count, and adds a truncation warning when the result exceeds the cap. The cap is
-therefore a response limit, not a bound on database fetching or server memory.
+The executor asks both shipped Adapters for at most `max_rows + 1` rows, using
+native bounded fetches on the query Lane. The extra row detects truncation: the
+executor returns at most `max_rows` rows (default 100), sets `row_count` to the
+returned count, and adds `result truncated to <max_rows> rows` only when the
+result exceeds the cap. A result exactly at the cap has no truncation warning.
 Results contain ordered `columns`, positional `rows`, `row_count`,
-`execution_time_ms`, and `warnings`.
+`execution_time_ms`, and `warnings`; they do not report a total result count.
+
+Capped statements release their database resources before the reply. SQLite
+closes the cursor in `finally`, releasing its read lock; DuckDB's existing Session
+metadata snapshot queries replace the pending result. Writes with `RETURNING`
+apply every modification even when their returned rows are capped. The cap bounds
+rows read into Python, not work the database performs before producing its first
+row. Sorts and aggregates over large inputs still run to completion unless
+cancelled, and database-internal memory use is not bounded by this fetch limit.
 
 SQLite connects in autocommit mode so writes survive disconnect/reconnect. The
 protocol exposes no explicit begin/commit/rollback methods. Streaming, server-side cursors, and server-to-client notifications remain

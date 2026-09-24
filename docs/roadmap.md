@@ -18,8 +18,9 @@ database-specific behavior in Adapters, and keep presentation in clients.
 
 Async orchestration now supports responsive, concurrent work and cancellation
 through the stdio client path. [ADR-0003](adr/0003-async-orchestration.md) records
-the execution model and provisional async Adapter contract. Bounded result
-delivery remains future work; the response cap still follows materialization.
+the execution model and provisional async Adapter contract. Query fetching now
+stops one row past the response cap; delivery of rows beyond that cap remains
+future work.
 
 dbridge remains a query and introspection tool. ORM/query-builder behavior,
 database migrations, database permission administration, and bulk ETL are outside
@@ -72,6 +73,12 @@ order. Disconnect drains Session work; shutdown has a bounded grace period with
 explicit abandonment for a driver that cannot stop. The linked
 [client change](https://github.com/realEbi/dbridge.nvim/tree/dbridge-2.0/openspec/changes/archive/2026-09-24-cancel-outstanding-query)
 owns the editor cancel command and shared flow verification.
+
+[Bounded result fetching](backlog/056-bounded-result-fetch.md) is implemented:
+SQLite and DuckDB fetch at most `max_rows + 1` rows and release capped statements
+before replying. The response retains its row cap and truncation warning; writes
+with `RETURNING` still apply every modification. Sorts and aggregates can still
+do substantial work before producing their first row.
 
 [Large-result delivery](backlog/013-large-results.md) and
 [server-to-client notifications](backlog/010-server-notifications.md) remain open.

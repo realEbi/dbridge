@@ -5,7 +5,7 @@ Adapters call `fetchall()` first and the executor discards the excess afterwards
 On a 2,000,000-row local table this spends 3.5 s (SQLite) to 4.8 s (DuckDB) and
 0.7–0.9 GB of peak memory to return 100 rows; fetching `max_rows + 1` rows takes
 under 1 ms. With async orchestration and cancellation shipped, this is the largest
-remaining cost on the local query path. See [backlog 056](../../../docs/backlog/056-bounded-result-fetch.md).
+remaining cost on the local query path. See [backlog 056](../../../../docs/backlog/056-bounded-result-fetch.md).
 
 ## What Changes
 
@@ -26,7 +26,7 @@ remaining cost on the local query path. See [backlog 056](../../../docs/backlog/
   passes one.
 
 Out of scope: fetching rows beyond the cap (pagination, server-side cursors,
-streaming) stays with [backlog 013](../../../docs/backlog/013-large-results.md).
+streaming) stays with [backlog 013](../../../../docs/backlog/013-large-results.md).
 Queries whose cost comes before the first row, such as sorts and aggregates over
 large tables, get no faster; cancellation covers them. `max_rows` configuration
 and validation are unchanged.
@@ -48,14 +48,16 @@ bounded fetch still runs on the Session's query lane and remains interruptible.
 ## Impact
 
 **Roadmap and backlog.** Advances milestone 2 (*Responsive queries and larger
-results*) without resolving it: [013](../../../docs/backlog/013-large-results.md)
-keeps the delivery model for rows beyond the cap, and [010](../../../docs/backlog/010-server-notifications.md)
-is unaffected. Resolves [056](../../../docs/backlog/056-bounded-result-fetch.md).
+results*) without resolving it: [013](../../../../docs/backlog/013-large-results.md)
+keeps the delivery model for rows beyond the cap, and [010](../../../../docs/backlog/010-server-notifications.md)
+is unaffected. Resolves [056](../../../../docs/backlog/056-bounded-result-fetch.md).
 
 **Repositories.** Server only. No client repository change is needed.
 
 **Protocol compatibility.** None. No method, param, result field, error code, or
-warning text changes. Clients see the same responses sooner.
+warning text changes. Clients see the same responses sooner. Existing DDL replies
+also remain unchanged: DuckDB's `CREATE TABLE` includes `columns: ["Count"]`
+with no rows, while SQLite returns empty columns.
 
 **Code.** `DBAdapter.execute` and `ThreadBackedAdapter` gain a row limit; the
 SQLite and DuckDB `_execute` implementations use native bounded fetches; the

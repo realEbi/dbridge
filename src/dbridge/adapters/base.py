@@ -95,7 +95,12 @@ class DBAdapter(ABC):
         """
 
     @abstractmethod
-    async def execute(self, sql: str) -> QueryResult: ...
+    async def execute(self, sql: str, *, row_limit: int | None = None) -> QueryResult:
+        """Read at most row_limit rows, or all rows when it is None.
+
+        Reject row limits below 1 before calling the driver.
+        """
+        ...
 
     @abstractmethod
     def scope_levels(self) -> list[ScopeLevel]: ...

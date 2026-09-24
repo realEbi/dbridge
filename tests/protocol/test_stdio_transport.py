@@ -156,13 +156,13 @@ class IgnoringSQLite(SqliteAdapter):
         self.closed = threading.Event()
         self.queued_ran = False
 
-    def _execute(self, sql):
+    def _execute(self, sql, *, row_limit=None):
         if sql == "blocked":
             self.entered.set()
             self.release.wait(10)
         if sql == "queued":
             self.queued_ran = True
-        return super()._execute("SELECT 1")
+        return super()._execute("SELECT 1", row_limit=row_limit)
 
     def _interrupt(self, lane):
         pass

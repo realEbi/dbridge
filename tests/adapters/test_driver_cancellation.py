@@ -25,9 +25,9 @@ async def started_execute(adapter, sql, monkeypatch):
     started = threading.Event()
     execute = adapter._execute
 
-    def observed(statement):
+    def observed(statement, *, row_limit=None):
         started.set()
-        return execute(statement)
+        return execute(statement, row_limit=row_limit)
 
     monkeypatch.setattr(adapter, "_execute", observed)
     task = asyncio.create_task(adapter.execute(sql))

@@ -82,6 +82,7 @@ Relevant source/tests, dependencies, and questions to resolve before planning.
 - [052 - Survive a malformed or truncated protocol frame](052-truncated-frame-crashes-loop.md)
 - [056 - Stop fetching rows beyond the row cap](056-bounded-result-fetch.md)
 - [057 - Distinguish a JSON null body from end of input](057-json-null-frame-ends-input.md)
+- [058 - Reject negative query row caps](058-negative-max-rows.md)
 
 ## Adapters and metadata
 

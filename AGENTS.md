@@ -148,7 +148,8 @@ paired worktree and PR for each owner; integration checks must use those worktre
 - Keep stdout reserved for protocol frames. Use logging for diagnostics.
 - Preserve byte-based `Content-Length` framing and UTF-8 cursor offsets.
 - Preserve result column order, explicit truncation warnings, and Profile/Session
-  separation. The row cap currently applies after materialization.
+  separation. Query execution fetches at most `max_rows + 1` rows through the
+  Adapter before the executor truncates; release capped statements before replying.
 - Clients manage Profiles through RPCs. Tests and examples use isolated temporary
   data/configuration and clean up subprocesses.
 - Prefer small working slices and meaningful behavior verification. Test order is
