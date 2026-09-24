@@ -1,184 +1,184 @@
 import pytest
 
-from dbridge.core.engine import Engine
 from dbridge.protocol import errors
 from dbridge.protocol.handlers import Dispatcher
 
 
-def make_dispatcher():
-    return Dispatcher(Engine())
+@pytest.fixture
+def make_dispatcher(engine):
+    return lambda: Dispatcher(engine)
 
 
-def test_connect_and_execute():
+async def test_connect_and_execute(make_dispatcher):
     d = make_dispatcher()
-    resp = d.handle({
+    resp = (await d.handle({
         "jsonrpc": "2.0", "id": 1, "method": "dbridge/connect",
         "params": {"adapter": "sqlite", "config": {"uri": ":memory:"}},
-    })
+    }))
     sid = resp["result"]["session_id"]
-    d.handle({
+    (await d.handle({
         "jsonrpc": "2.0", "id": 2, "method": "dbridge/execute",
         "params": {"session_id": sid, "sql": "CREATE TABLE t (id INTEGER)"},
-    })
-    d.handle({
+    }))
+    (await d.handle({
         "jsonrpc": "2.0", "id": 3, "method": "dbridge/execute",
         "params": {"session_id": sid, "sql": "INSERT INTO t VALUES (1)"},
-    })
-    resp = d.handle({
+    }))
+    resp = (await d.handle({
         "jsonrpc": "2.0", "id": 4, "method": "dbridge/execute",
         "params": {"session_id": sid, "sql": "SELECT id FROM t"},
-    })
+    }))
     assert resp["result"]["rows"] == [[1]]
 
 
-def test_unknown_method():
+async def test_unknown_method(make_dispatcher):
     d = make_dispatcher()
-    resp = d.handle({"jsonrpc": "2.0", "id": 1, "method": "dbridge/nope", "params": {}})
+    resp = (await d.handle({"jsonrpc": "2.0", "id": 1, "method": "dbridge/nope", "params": {}}))
     assert resp["error"]["code"] == errors.METHOD_NOT_FOUND
 
 
-def test_session_not_found():
+async def test_session_not_found(make_dispatcher):
     d = make_dispatcher()
-    resp = d.handle({
+    resp = (await d.handle({
         "jsonrpc": "2.0", "id": 1, "method": "dbridge/execute",
         "params": {"session_id": "bad", "sql": "SELECT 1"},
-    })
+    }))
     assert resp["error"]["code"] == errors.SESSION_NOT_FOUND
 
 
-def test_unsupported_adapter():
+async def test_unsupported_adapter(make_dispatcher):
     d = make_dispatcher()
-    resp = d.handle({
+    resp = (await d.handle({
         "jsonrpc": "2.0", "id": 1, "method": "dbridge/connect",
         "params": {"adapter": "oracle", "config": {}},
-    })
+    }))
     assert resp["error"]["code"] == errors.ADAPTER_NOT_SUPPORTED
 
 
-def test_notification_returns_none():
+async def test_notification_returns_none(make_dispatcher):
     d = make_dispatcher()
-    assert d.handle({"jsonrpc": "2.0", "method": "dbridge/execute", "params": {}}) is None
+    assert (await d.handle({"jsonrpc": "2.0", "method": "dbridge/execute", "params": {}})) is None
 
 
 # ── profile management over the protocol ──────────────────────────────────────
 # `isolated_profiles` comes from tests/conftest.py.
 
-def _rpc(d, _id, method, params):
-    return d.handle({"jsonrpc": "2.0", "id": _id, "method": method, "params": params})
+async def _rpc(d, _id, method, params):
+    return (await d.handle({"jsonrpc": "2.0", "id": _id, "method": method, "params": params}))
 
 
-def test_save_list_delete_profile_roundtrip(isolated_profiles):
+async def test_save_list_delete_profile_roundtrip(make_dispatcher, isolated_profiles):
     d = make_dispatcher()
 
-    assert _rpc(d, 1, "dbridge/listProfiles", {})["result"] == {}
+    assert (await _rpc(d, 1, "dbridge/listProfiles", {}))["result"] == {}
 
-    resp = _rpc(d, 2, "dbridge/saveProfile", {
+    resp = (await _rpc(d, 2, "dbridge/saveProfile", {
         "name": "mem", "adapter": "sqlite", "config": {"uri": ":memory:"},
-    })
+    }))
     assert resp["result"]["ok"] is True
 
-    listed = _rpc(d, 3, "dbridge/listProfiles", {})["result"]
+    listed = (await _rpc(d, 3, "dbridge/listProfiles", {}))["result"]
     assert listed == {"mem": {"adapter": "sqlite", "config": {"uri": ":memory:"}}}
 
-    assert _rpc(d, 4, "dbridge/deleteProfile", {"name": "mem"})["result"]["ok"] is True
-    assert _rpc(d, 5, "dbridge/listProfiles", {})["result"] == {}
+    assert (await _rpc(d, 4, "dbridge/deleteProfile", {"name": "mem"}))["result"]["ok"] is True
+    assert (await _rpc(d, 5, "dbridge/listProfiles", {}))["result"] == {}
 
 
-def test_delete_unknown_profile_reports_not_ok(isolated_profiles):
+async def test_delete_unknown_profile_reports_not_ok(make_dispatcher, isolated_profiles):
     d = make_dispatcher()
-    assert _rpc(d, 1, "dbridge/deleteProfile", {"name": "ghost"})["result"]["ok"] is False
+    assert (await _rpc(d, 1, "dbridge/deleteProfile", {"name": "ghost"}))["result"]["ok"] is False
 
 
-def test_save_profile_requires_name_and_adapter(isolated_profiles):
+async def test_save_profile_requires_name_and_adapter(make_dispatcher, isolated_profiles):
     d = make_dispatcher()
-    resp = _rpc(d, 1, "dbridge/saveProfile", {"adapter": "sqlite"})
+    resp = (await _rpc(d, 1, "dbridge/saveProfile", {"adapter": "sqlite"}))
     assert resp["error"]["code"] == errors.INVALID_REQUEST
 
 
-def test_connect_by_profile_name(isolated_profiles):
+async def test_connect_by_profile_name(make_dispatcher, isolated_profiles):
     d = make_dispatcher()
-    _rpc(d, 1, "dbridge/saveProfile", {
+    (await _rpc(d, 1, "dbridge/saveProfile", {
         "name": "mem", "adapter": "sqlite", "config": {"uri": ":memory:"},
-    })
+    }))
 
-    sid = _rpc(d, 2, "dbridge/connect", {"profile": "mem"})["result"]["session_id"]
-    _rpc(d, 3, "dbridge/execute", {"session_id": sid, "sql": "CREATE TABLE t (id INTEGER)"})
-    assert _rpc(d, 4, "dbridge/listTables", {"session_id": sid, "path": ["main"]})["result"] == [
+    sid = (await _rpc(d, 2, "dbridge/connect", {"profile": "mem"}))["result"]["session_id"]
+    (await _rpc(d, 3, "dbridge/execute", {"session_id": sid, "sql": "CREATE TABLE t (id INTEGER)"}))
+    assert (await _rpc(d, 4, "dbridge/listTables", {"session_id": sid, "path": ["main"]}))["result"] == [
         {"name": "t", "sql_identifier": '"main"."t"'},
     ]
 
 
-def test_connect_with_unknown_profile_returns_profile_not_found(isolated_profiles):
+async def test_connect_with_unknown_profile_returns_profile_not_found(make_dispatcher, isolated_profiles):
     d = make_dispatcher()
-    resp = _rpc(d, 1, "dbridge/connect", {"profile": "ghost"})
+    resp = (await _rpc(d, 1, "dbridge/connect", {"profile": "ghost"}))
     assert resp["error"]["code"] == errors.PROFILE_NOT_FOUND
 
 
-def test_connect_without_profile_or_adapter_is_invalid_request():
+async def test_connect_without_profile_or_adapter_is_invalid_request(make_dispatcher):
     d = make_dispatcher()
-    resp = _rpc(d, 1, "dbridge/connect", {})
+    resp = (await _rpc(d, 1, "dbridge/connect", {}))
     assert resp["error"]["code"] == errors.INVALID_REQUEST
 
 
-def test_get_erd_with_unknown_session_returns_session_not_found():
+async def test_get_erd_with_unknown_session_returns_session_not_found(make_dispatcher):
     d = make_dispatcher()
-    resp = _rpc(d, 1, "dbridge/getERD", {"session_id": "no-such-session"})
+    resp = (await _rpc(d, 1, "dbridge/getERD", {"session_id": "no-such-session"}))
     assert resp["error"]["code"] == errors.SESSION_NOT_FOUND
 
 
 # ── error mapping ─────────────────────────────────────────────────────────────
 
-def test_malformed_request_returns_invalid_request():
+async def test_malformed_request_returns_invalid_request(make_dispatcher):
     """A payload that fails JsonRpcRequest validation is reported, not raised."""
     d = make_dispatcher()
-    resp = d.handle({"jsonrpc": "2.0", "id": 1})  # no method
+    resp = (await d.handle({"jsonrpc": "2.0", "id": 1}))  # no method
     assert resp["error"]["code"] == errors.INVALID_REQUEST
 
 
-def test_malformed_request_preserves_the_request_id():
+async def test_malformed_request_preserves_the_request_id(make_dispatcher):
     d = make_dispatcher()
-    resp = d.handle({"jsonrpc": "2.0", "id": 42, "params": {}})
+    resp = (await d.handle({"jsonrpc": "2.0", "id": 42, "params": {}}))
     assert resp["id"] == 42
 
 
-def test_malformed_request_without_an_id_still_responds():
+async def test_malformed_request_without_an_id_still_responds(make_dispatcher):
     """Validation fails before the notification check, so an error still comes back."""
     d = make_dispatcher()
-    resp = d.handle({"not": "a request"})
+    resp = (await d.handle({"not": "a request"}))
     assert resp["error"]["code"] == errors.INVALID_REQUEST
     assert resp["id"] is None
 
 
-def test_connection_failure_maps_to_connection_failed():
+async def test_connection_failure_maps_to_connection_failed(make_dispatcher):
     """sqlite without a uri raises AdapterConnectionError inside connect."""
     d = make_dispatcher()
-    resp = _rpc(d, 1, "dbridge/connect", {"adapter": "sqlite", "config": {}})
+    resp = (await _rpc(d, 1, "dbridge/connect", {"adapter": "sqlite", "config": {}}))
     assert resp["error"]["code"] == errors.CONNECTION_FAILED
 
 
-def test_query_failure_maps_to_query_error():
+async def test_query_failure_maps_to_query_error(make_dispatcher):
     d = make_dispatcher()
-    sid = _rpc(d, 1, "dbridge/connect", {
+    sid = (await _rpc(d, 1, "dbridge/connect", {
         "adapter": "sqlite", "config": {"uri": ":memory:"},
-    })["result"]["session_id"]
+    }))["result"]["session_id"]
 
-    resp = _rpc(d, 2, "dbridge/execute", {"session_id": sid, "sql": "SELECT * FROM nope"})
+    resp = (await _rpc(d, 2, "dbridge/execute", {"session_id": sid, "sql": "SELECT * FROM nope"}))
     assert resp["error"]["code"] == errors.QUERY_ERROR
 
 
-def test_missing_param_maps_to_invalid_request():
+async def test_missing_param_maps_to_invalid_request(make_dispatcher):
     """A KeyError from a method lambda is reported as a missing param."""
     d = make_dispatcher()
-    resp = _rpc(d, 1, "dbridge/execute", {"session_id": "whatever"})  # no sql
+    resp = (await _rpc(d, 1, "dbridge/execute", {"session_id": "whatever"}))  # no sql
     assert resp["error"]["code"] == errors.INVALID_REQUEST
     assert "sql" in resp["error"]["message"]
 
 
-def test_successful_response_shape():
+async def test_successful_response_shape(make_dispatcher):
     d = make_dispatcher()
-    resp = _rpc(d, 7, "dbridge/connect", {
+    resp = (await _rpc(d, 7, "dbridge/connect", {
         "adapter": "sqlite", "config": {"uri": ":memory:"},
-    })
+    }))
     assert resp["jsonrpc"] == "2.0"
     assert resp["id"] == 7
     assert "error" not in resp
@@ -188,71 +188,71 @@ def test_successful_response_shape():
 @pytest.mark.parametrize("path_params", [{}, {"path": None}, {"path": "main"}, {"path": []},
                                          {"path": [1]}, {"path": [""]},
                                          {"path": ["main", "main"]}])
-def test_invalid_scope_path_returns_error_and_dispatcher_stays_available(
+async def test_invalid_scope_path_returns_error_and_dispatcher_stays_available(
     engine_session, method, path_params,
 ):
     engine, sid = engine_session
     d = Dispatcher(engine)
     params = {"session_id": sid, "sql": "SELECT ", "name": "products", **path_params}
-    assert _rpc(d, 1, "dbridge/" + method, params)["error"]["code"] == errors.INVALID_REQUEST
-    assert _rpc(d, 2, "dbridge/execute", {"session_id": sid, "sql": "SELECT 1"})[
+    assert (await _rpc(d, 1, "dbridge/" + method, params))["error"]["code"] == errors.INVALID_REQUEST
+    assert (await _rpc(d, 2, "dbridge/execute", {"session_id": sid, "sql": "SELECT 1"}))[
         "result"
     ]["rows"] == [[1]]
 
 
 @pytest.mark.parametrize("path", [None, [], ["main"]])
-def test_list_databases_rejects_any_supplied_path(engine_session, path):
+async def test_list_databases_rejects_any_supplied_path(engine_session, path):
     engine, sid = engine_session
     d = Dispatcher(engine)
-    assert _rpc(d, 1, "dbridge/listDatabases", {"session_id": sid, "path": path})[
+    assert (await _rpc(d, 1, "dbridge/listDatabases", {"session_id": sid, "path": path}))[
         "error"
     ]["code"] == errors.INVALID_REQUEST
-    assert _rpc(d, 2, "dbridge/listDatabases", {"session_id": sid})["result"] == [
+    assert (await _rpc(d, 2, "dbridge/listDatabases", {"session_id": sid}))["result"] == [
         {"name": "main", "internal": False},
     ]
 
 
 @pytest.mark.parametrize("legacy", [{"fqn": "main.products"}, {"table": {"name": "products"}},
                                     {"database": "main"}, {"schema": "main"}])
-def test_legacy_identity_is_rejected_even_with_valid_path(engine_session, legacy):
+async def test_legacy_identity_is_rejected_even_with_valid_path(engine_session, legacy):
     engine, sid = engine_session
-    response = _rpc(Dispatcher(engine), 1, "dbridge/getTableSchema", {
+    response = (await _rpc(Dispatcher(engine), 1, "dbridge/getTableSchema", {
         "session_id": sid, "path": ["main"], "name": "products", **legacy,
-    })
+    }))
     assert response["error"]["code"] == errors.INVALID_REQUEST
 
 
 @pytest.mark.parametrize("name", [None, "", 1, [], {"name": "products"}])
-def test_table_name_requires_nonempty_literal_string(engine_session, name):
+async def test_table_name_requires_nonempty_literal_string(engine_session, name):
     engine, sid = engine_session
-    response = _rpc(Dispatcher(engine), 1, "dbridge/getTableSchema", {
+    response = (await _rpc(Dispatcher(engine), 1, "dbridge/getTableSchema", {
         "session_id": sid, "path": ["main"], "name": name,
-    })
+    }))
     assert response["error"]["code"] == errors.INVALID_REQUEST
 
 
-def test_duckdb_operation_arity_and_scoped_rpc_results(engine):
+async def test_duckdb_operation_arity_and_scoped_rpc_results(engine):
     d = Dispatcher(engine)
-    connected = _rpc(d, 1, "dbridge/connect", {"adapter": "duckdb"})["result"]
+    connected = (await _rpc(d, 1, "dbridge/connect", {"adapter": "duckdb"}))["result"]
     sid = connected["session_id"]
     try:
-        engine.execute(sid, "CREATE TABLE orders (id INTEGER)")
-        assert _rpc(d, 2, "dbridge/listTables", {"session_id": sid, "path": ["memory"]})[
+        (await engine.execute(sid, "CREATE TABLE orders (id INTEGER)"))
+        assert (await _rpc(d, 2, "dbridge/listTables", {"session_id": sid, "path": ["memory"]}))[
             "error"
         ]["code"] == errors.INVALID_REQUEST
-        schemas = _rpc(d, 3, "dbridge/listSchemas", {"session_id": sid, "path": ["memory"]})["result"]
+        schemas = (await _rpc(d, 3, "dbridge/listSchemas", {"session_id": sid, "path": ["memory"]}))["result"]
         assert {"name": "main", "internal": False} in schemas
-        assert _rpc(d, 4, "dbridge/listSchemas", {"session_id": sid, "path": ["memory", "main"]})[
+        assert (await _rpc(d, 4, "dbridge/listSchemas", {"session_id": sid, "path": ["memory", "main"]}))[
             "error"
         ]["code"] == errors.INVALID_REQUEST
         params = {"session_id": sid, "path": ["memory", "main"]}
-        listed = _rpc(d, 5, "dbridge/listTables", params)["result"]
+        listed = (await _rpc(d, 5, "dbridge/listTables", params))["result"]
         assert listed == [{"name": "orders", "sql_identifier": '"memory"."main"."orders"'}]
-        assert _rpc(d, 6, "dbridge/getERD", params)["result"] == {
+        assert (await _rpc(d, 6, "dbridge/getERD", params))["result"] == {
             "status": "not_implemented", "tables": listed,
         }
-        assert _rpc(d, 7, "dbridge/refreshSchema", {"session_id": sid})["result"] == {
+        assert (await _rpc(d, 7, "dbridge/refreshSchema", {"session_id": sid}))["result"] == {
             "ok": True, "levels": connected["levels"], "default_path": connected["default_path"],
         }
     finally:
-        engine.disconnect(sid)
+        (await engine.disconnect(sid))

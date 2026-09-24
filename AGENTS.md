@@ -126,9 +126,11 @@ paired worktree and PR for each owner; integration checks must use those worktre
 
 - Use the glossary: Profile is persisted configuration; Session is a live Adapter
   binding and can be created from inline configuration too.
-- The current Core Engine, Adapters, and stdio loop are synchronous. Revisiting
-  that is roadmap work requiring an explicit design and a superseding decision;
-  synchronous execution is not a permanent ban on future architecture changes.
+- Transport, Dispatcher, and Core Engine coordinate work on one asyncio loop.
+  Database-touching Adapter methods are async; driver calls and cancellation stay
+  inside Adapters. SQLite uses one Lane, DuckDB query and metadata Lanes. Preserve
+  per-Session execute order and cancellation isolation. ADR-0003 records the
+  provisional contract, which a native async MySQL driver must validate.
 - Keep driver imports in Adapters. Only SQLite and DuckDB are currently registered;
   parked adapters must not become load-time dependencies.
 - DuckDB execution uses native fetch methods without pandas.

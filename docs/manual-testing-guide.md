@@ -91,6 +91,56 @@ Run `DROP TABLE "order.items"` and refresh afterward, or reset the samples with
 executing a guessed bare-name query. Both repositories must use the Scope Path contract; old `fqn`, `database`, and
 `schema` request fields are rejected.
 
+## Cancel a query and complete while it runs
+
+Use matching server and Neovim client checkouts, including the client's
+[`:DbridgeCancel` command](https://github.com/realEbi/dbridge.nvim/tree/dbridge-2.0/openspec/changes/archive/2026-09-24-cancel-outstanding-query).
+Start with the DuckDB sample created by `make manual-prepare`:
+
+1. Connect to `examples/sample.duckdb`, select its `main` schema, and open two
+   query buffers on the same Session. In one, prepare
+   `SELECT p.name, p.category FROM products p LIMIT 100` with the cursor after
+   `p.`. Refresh the Profile with `R` before starting the long query so this
+   completion must fetch metadata again.
+2. In the other buffer, execute this read-only query:
+
+   ```sql
+   SELECT sum(hash(i)) FROM range(20000000000) t(i);
+   ```
+
+3. While it is running, return to the products buffer and request completion
+   after `p.`. All six product columns should arrive before the long query
+   finishes. Table browsing on this DuckDB Session should also remain responsive.
+4. Run `:DbridgeCancel`. The client should report cancellation as informational,
+   without a partial result. Then run `SELECT count(*) AS n FROM products`; the
+   same Session should return `10`.
+5. Repeat with the SQLite sample. First request products completion to warm its
+   cache, then start this query and request the same completion within the default
+   60-second cache TTL:
+
+   ```sql
+   WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i + 1 FROM n)
+   SELECT sum(i) FROM n;
+   ```
+
+   Cached completion should arrive while the query runs. Uncached SQLite metadata
+   waits behind the query because that Adapter has one Lane. Use `:DbridgeCancel`,
+   then verify `SELECT count(*) AS n FROM products` still returns `10`.
+
+For a raw DSP client, retain `session_id` and `default_path` from connect, send the
+long query as `dbridge/execute` with id `42`, then send `dbridge/complete` with id
+`43`, the same Session and path, full products SQL, and `position: 9` (the UTF-8
+byte position after the first `p.`). The completion reply should arrive first.
+Send `{"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":42}}`
+without an outer id; request `42` should reply with `QUERY_CANCELLED` (-32004),
+and the notification should receive no reply. Correlate every response by id,
+not arrival order. An already-finished query keeps its normal response if the
+cancel arrives too late.
+
+These queries read data only. Disconnect both Sessions when finished. The server
+owns cancellation and ordering; the companion client owns its command, progress
+state, and cancellation presentation.
+
 ## Attached-container checks
 
 Use an isolated in-memory Profile for each Adapter, so these checks do not change

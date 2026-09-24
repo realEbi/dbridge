@@ -19,13 +19,15 @@ def isolated_profiles(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def engine():
+async def engine():
     """A bare Engine with no Session."""
-    return Engine()
+    engine = Engine()
+    yield engine
+    await engine.close_all()
 
 
 @pytest.fixture
-def engine_session(engine):
+async def engine_session(engine):
     """An Engine plus a connected in-memory SQLite Session id."""
-    session_id = engine.connect("sqlite", {"uri": ":memory:"})["session_id"]
+    session_id = (await engine.connect("sqlite", {"uri": ":memory:"}))["session_id"]
     return engine, session_id

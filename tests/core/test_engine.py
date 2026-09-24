@@ -4,6 +4,9 @@ These paths are exercised end-to-end through a spawned server, so they are
 proven but unmeasured. Calling them in process also lets each assertion target
 one method rather than a whole protocol exchange.
 """
+import asyncio
+from unittest.mock import AsyncMock
+
 import pytest
 
 from dbridge.core.schema_registry import SchemaRegistry
@@ -11,14 +14,14 @@ from dbridge.core.session import SessionNotFoundError
 from dbridge.exceptions import InvalidRequestError
 
 
-def test_connect_returns_a_session_id(engine):
-    result = engine.connect("sqlite", {"uri": ":memory:"})
+async def test_connect_returns_a_session_id(engine):
+    result = await engine.connect("sqlite", {"uri": ":memory:"})
     assert isinstance(result["session_id"], str) and result["session_id"]
 
 
-def test_connect_without_adapter_or_profile_is_invalid(engine):
+async def test_connect_without_adapter_or_profile_is_invalid(engine):
     with pytest.raises(InvalidRequestError):
-        engine.connect()
+        await engine.connect()
 
 
 def test_connect_registers_a_schema_registry(engine_session):
@@ -26,91 +29,90 @@ def test_connect_registers_a_schema_registry(engine_session):
     assert isinstance(engine._registries[session_id], SchemaRegistry)
 
 
-def test_disconnect_removes_session_and_registry(engine_session):
+async def test_disconnect_removes_session_and_registry(engine_session):
     engine, session_id = engine_session
 
-    assert engine.disconnect(session_id) == {"ok": True}
+    assert await engine.disconnect(session_id) == {"ok": True}
 
     assert session_id not in engine._registries
     with pytest.raises(SessionNotFoundError):
         engine.sessions.get(session_id)
 
 
-def test_disconnect_is_idempotent(engine_session):
-    """Disconnecting twice is a silent no-op: SessionManager.close pops with a
-    default, so a client that retries a disconnect does not get an error."""
+async def test_disconnect_is_idempotent(engine_session):
+    """A client that retries a disconnect does not get an error."""
     engine, session_id = engine_session
-    assert engine.disconnect(session_id) == {"ok": True}
-    assert engine.disconnect(session_id) == {"ok": True}
+    assert await engine.disconnect(session_id) == {"ok": True}
+    assert await engine.disconnect(session_id) == {"ok": True}
 
 
-def test_list_databases(engine_session):
+async def test_list_databases(engine_session):
     engine, session_id = engine_session
-    assert engine.list_databases(session_id) == [{"name": "main", "internal": False}]
+    assert await engine.list_databases(session_id) == [{"name": "main", "internal": False}]
 
 
-def test_list_schemas(engine_session):
+async def test_list_schemas(engine_session):
     engine, session_id = engine_session
-    assert engine.list_schemas(session_id, ("main",)) == []
+    assert await engine.list_schemas(session_id, ("main",)) == []
 
 
-def test_list_schemas_with_explicit_database(engine_session):
+async def test_list_schemas_with_explicit_database(engine_session):
     engine, session_id = engine_session
-    assert engine.list_schemas(session_id, ("main",)) == []
+    assert await engine.list_schemas(session_id, ("main",)) == []
 
 
-def test_list_tables_reflects_created_tables(engine_session):
+async def test_list_tables_reflects_created_tables(engine_session):
     engine, session_id = engine_session
-    engine.execute(session_id, "CREATE TABLE users (id INTEGER)")
-    assert engine.list_tables(session_id, ("main",)) == [{"name": "users", "sql_identifier": '"main"."users"'}]
+    await engine.execute(session_id, "CREATE TABLE users (id INTEGER)")
+    assert await engine.list_tables(session_id, ("main",)) == [{"name": "users", "sql_identifier": '"main"."users"'}]
 
 
-def test_get_table_schema_returns_columns(engine_session):
+async def test_get_table_schema_returns_columns(engine_session):
     engine, session_id = engine_session
-    engine.execute(session_id, "CREATE TABLE users (id INTEGER, name TEXT)")
+    await engine.execute(session_id, "CREATE TABLE users (id INTEGER, name TEXT)")
 
-    schema = engine.get_table_schema(session_id, ("main",), "users")
+    schema = await engine.get_table_schema(session_id, ("main",), "users")
 
     assert schema["name"] == "users"
     assert [c["name"] for c in schema["columns"]] == ["id", "name"]
 
 
-def test_get_erd_reports_not_implemented_with_tables(engine_session):
+async def test_get_erd_reports_not_implemented_with_tables(engine_session):
     engine, session_id = engine_session
-    engine.execute(session_id, "CREATE TABLE t (id INTEGER)")
+    await engine.execute(session_id, "CREATE TABLE t (id INTEGER)")
 
-    erd = engine.get_erd(session_id, ("main",))
+    erd = await engine.get_erd(session_id, ("main",))
 
     assert erd["status"] == "not_implemented"
     assert "t" in [entry["name"] for entry in erd["tables"]]
 
 
-def test_refresh_schema_clears_the_cache(engine_session):
+async def test_refresh_schema_clears_the_cache(engine_session):
     engine, session_id = engine_session
-    engine.execute(session_id, "CREATE TABLE before (id INTEGER)")
-    engine.list_tables(session_id, ("main",))
+    await engine.execute(session_id, "CREATE TABLE before (id INTEGER)")
+    await engine.list_tables(session_id, ("main",))
 
-    engine.execute(session_id, "CREATE TABLE after (id INTEGER)")
-    assert engine.refresh_schema(session_id)["default_path"] == ["main"]
+    await engine.execute(session_id, "CREATE TABLE after (id INTEGER)")
+    assert (await engine.refresh_schema(session_id))["default_path"] == ["main"]
 
-    assert "after" in [t["name"] for t in engine.list_tables(session_id, ("main",))]
+    assert "after" in [t["name"] for t in await engine.list_tables(session_id, ("main",))]
 
 
-def test_complete_returns_tables_in_a_from_position(engine_session):
+async def test_complete_returns_tables_in_a_from_position(engine_session):
     engine, session_id = engine_session
-    engine.execute(session_id, "CREATE TABLE users (id INTEGER)")
+    await engine.execute(session_id, "CREATE TABLE users (id INTEGER)")
 
-    items = engine.complete(session_id, "SELECT * FROM ", path=engine.sessions.get(session_id).adapter.default_scope())
+    items = await engine.complete(session_id, "SELECT * FROM ", path=await engine.sessions.get(session_id).adapter.default_scope())
 
     assert {i["kind"] for i in items} == {"table"}
     assert "users" in [i["label"] for i in items]
 
 
-def test_complete_returns_columns_at_a_cursor_position(engine_session):
+async def test_complete_returns_columns_at_a_cursor_position(engine_session):
     engine, session_id = engine_session
-    engine.execute(session_id, "CREATE TABLE users (id INTEGER, name TEXT)")
+    await engine.execute(session_id, "CREATE TABLE users (id INTEGER, name TEXT)")
 
-    items = engine.complete(session_id, "SELECT  FROM users", path=engine.sessions.get(session_id).adapter.default_scope(), position=7)
+    items = await engine.complete(session_id, "SELECT  FROM users", path=await engine.sessions.get(session_id).adapter.default_scope(), position=7)
 
     assert {i["kind"] for i in items} == {"column"}
     assert [i["label"] for i in items] == ["id", "name"]
@@ -143,22 +145,22 @@ def test_complete_returns_columns_at_a_cursor_position(engine_session):
         "products", ["id", "name", "category"],
     ),
 ], ids=["first-column", "after-comma", "prefix", "join-product", "join-order", "utf8"])
-def test_complete_resolves_alias_columns_with_real_adapter(
+async def test_complete_resolves_alias_columns_with_real_adapter(
     engine, adapter, marked_sql, table, columns,
 ):
-    session_id = engine.connect(adapter, {"uri": ":memory:"})["session_id"]
+    session_id = (await engine.connect(adapter, {"uri": ":memory:"}))["session_id"]
     try:
-        engine.execute(
+        await engine.execute(
             session_id, "CREATE TABLE products (id INTEGER, name TEXT, category TEXT)"
         )
-        engine.execute(
+        await engine.execute(
             session_id,
             "CREATE TABLE orders (id INTEGER, product_id INTEGER, order_reference TEXT)",
         )
         before, _, after = marked_sql.partition("|")
 
-        items = engine.complete(
-            session_id, before + after, path=engine.sessions.get(session_id).adapter.default_scope(), position=len(before.encode("utf-8"))
+        items = await engine.complete(
+            session_id, before + after, path=await engine.sessions.get(session_id).adapter.default_scope(), position=len(before.encode("utf-8"))
         )
 
         assert [item["label"] for item in items] == columns
@@ -168,18 +170,18 @@ def test_complete_resolves_alias_columns_with_real_adapter(
             f"{table}.{column}" for column in columns
         ]
     finally:
-        engine.disconnect(session_id)
+        await engine.disconnect(session_id)
 
 
-def test_complete_duckdb_alias_uses_the_source_schema(engine):
-    session_id = engine.connect("duckdb", {"uri": ":memory:"})["session_id"]
+async def test_complete_duckdb_alias_uses_the_source_schema(engine):
+    session_id = (await engine.connect("duckdb", {"uri": ":memory:"}))["session_id"]
     try:
-        engine.execute(session_id, "CREATE SCHEMA retail")
-        engine.execute(session_id, "CREATE SCHEMA warehouse")
-        engine.execute(
+        await engine.execute(session_id, "CREATE SCHEMA retail")
+        await engine.execute(session_id, "CREATE SCHEMA warehouse")
+        await engine.execute(
             session_id, "CREATE TABLE retail.products (id INTEGER, name TEXT, category TEXT)"
         )
-        engine.execute(
+        await engine.execute(
             session_id,
             "CREATE TABLE warehouse.products (id INTEGER, stock_quantity INTEGER, bin_code TEXT)",
         )
@@ -188,8 +190,8 @@ def test_complete_duckdb_alias_uses_the_source_schema(engine):
             ("retail", ["id", "name", "category"]),
             ("warehouse", ["id", "stock_quantity", "bin_code"]),
         ]:
-            items = engine.complete(
-                session_id, f"SELECT p. FROM {schema}.products p", path=engine.sessions.get(session_id).adapter.default_scope(),
+            items = await engine.complete(
+                session_id, f"SELECT p. FROM {schema}.products p", path=await engine.sessions.get(session_id).adapter.default_scope(),
                 position=len("SELECT p.".encode("utf-8")),
             )
 
@@ -197,12 +199,12 @@ def test_complete_duckdb_alias_uses_the_source_schema(engine):
             assert [item["insert_text"] for item in items] == columns, schema
             assert {item["kind"] for item in items} == {"column"}, schema
     finally:
-        engine.disconnect(session_id)
+        await engine.disconnect(session_id)
 
 
-def test_complete_falls_back_to_keywords(engine_session):
+async def test_complete_falls_back_to_keywords(engine_session):
     engine, session_id = engine_session
-    items = engine.complete(session_id, "", path=engine.sessions.get(session_id).adapter.default_scope())
+    items = await engine.complete(session_id, "", path=await engine.sessions.get(session_id).adapter.default_scope())
     assert {i["kind"] for i in items} == {"keyword"}
 
 
@@ -216,10 +218,10 @@ def test_complete_falls_back_to_keywords(engine_session):
     lambda e, s: e.refresh_schema(s),
     lambda e, s: e.complete(s, "SELECT", path=("main",)),
 ])
-def test_unknown_session_raises_before_touching_the_cache(engine, call):
+async def test_unknown_session_raises_before_touching_the_cache(engine, call):
     """Every session-scoped method must reject an unknown id, not KeyError."""
     with pytest.raises(SessionNotFoundError):
-        call(engine, "no-such-session")
+        await call(engine, "no-such-session")
 
 
 def test_profile_roundtrip_through_the_engine(engine, isolated_profiles):
@@ -232,10 +234,10 @@ def test_profile_roundtrip_through_the_engine(engine, isolated_profiles):
     assert engine.delete_profile("mem") == {"ok": False}
 
 
-def test_connect_by_profile_name(engine, isolated_profiles):
+async def test_connect_by_profile_name(engine, isolated_profiles):
     engine.save_profile("mem", "sqlite", {"uri": ":memory:"})
-    session_id = engine.connect(profile="mem")["session_id"]
-    assert engine.list_databases(session_id) == [{"name": "main", "internal": False}]
+    session_id = (await engine.connect(profile="mem"))["session_id"]
+    assert await engine.list_databases(session_id) == [{"name": "main", "internal": False}]
 
 
 @pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
@@ -252,40 +254,40 @@ def test_connect_by_profile_name(engine, isolated_profiles):
         ["id", "product_id", "order_reference"],
     ),
 ])
-def test_complete_unqualified_select_with_real_adapter(
+async def test_complete_unqualified_select_with_real_adapter(
     engine, adapter, marked_sql, table, columns,
 ):
-    session_id = engine.connect(adapter, {"uri": ":memory:"})["session_id"]
+    session_id = (await engine.connect(adapter, {"uri": ":memory:"}))["session_id"]
     try:
-        engine.execute(
+        await engine.execute(
             session_id, "CREATE TABLE products (id INTEGER, name TEXT, category TEXT)"
         )
-        engine.execute(
+        await engine.execute(
             session_id,
             "CREATE TABLE orders (id INTEGER, product_id INTEGER, order_reference TEXT)",
         )
         before, after = marked_sql.split("|")
-        items = engine.complete(
-            session_id, before + after, path=engine.sessions.get(session_id).adapter.default_scope(), position=len(before.encode("utf-8"))
+        items = await engine.complete(
+            session_id, before + after, path=await engine.sessions.get(session_id).adapter.default_scope(), position=len(before.encode("utf-8"))
         )
         assert [item["label"] for item in items] == columns
         assert [item["insert_text"] for item in items] == columns
         assert {item["kind"] for item in items} == {"column"}
         assert [item["detail"] for item in items] == [f"{table}.{c}" for c in columns]
     finally:
-        engine.disconnect(session_id)
+        await engine.disconnect(session_id)
 
 
 @pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
-def test_bare_select_returns_session_dialect_keywords(engine, adapter):
-    session_id = engine.connect(adapter, {"uri": ":memory:"})["session_id"]
+async def test_bare_select_returns_session_dialect_keywords(engine, adapter):
+    session_id = (await engine.connect(adapter, {"uri": ":memory:"}))["session_id"]
     try:
-        items = engine.complete(session_id, "SELECT ", path=engine.sessions.get(session_id).adapter.default_scope())
-        assert items == engine.complete(session_id, "", path=engine.sessions.get(session_id).adapter.default_scope())
+        items = await engine.complete(session_id, "SELECT ", path=await engine.sessions.get(session_id).adapter.default_scope())
+        assert items == await engine.complete(session_id, "", path=await engine.sessions.get(session_id).adapter.default_scope())
         assert {item["kind"] for item in items} == {"keyword"}
         assert "FROM" in [item["label"] for item in items]
     finally:
-        engine.disconnect(session_id)
+        await engine.disconnect(session_id)
 
 
 @pytest.mark.parametrize("adapter,levels,path", [
@@ -294,58 +296,101 @@ def test_bare_select_returns_session_dialect_keywords(engine, adapter):
      ["memory", "main"]),
 ])
 @pytest.mark.parametrize("profile", [False, True])
-def test_connect_and_refresh_report_hierarchy_and_dialect(
+async def test_connect_and_refresh_report_hierarchy_and_dialect(
     engine, isolated_profiles, adapter, levels, path, profile,
 ):
     if profile:
         engine.save_profile("sample", adapter, {"uri": ":memory:"})
-        connected = engine.connect(profile="sample")
+        connected = await engine.connect(profile="sample")
     else:
-        connected = engine.connect(adapter, {"uri": ":memory:"})
+        connected = await engine.connect(adapter, {"uri": ":memory:"})
     sid = connected["session_id"]
     try:
         assert connected == {"session_id": sid, "levels": levels, "default_path": path, "dialect": adapter}
-        engine.execute(sid, "ATTACH ':memory:' AS side")
-        assert engine.refresh_schema(sid) == {"ok": True, "levels": levels, "default_path": path}
-        assert {"name": "side", "internal": False} in engine.list_databases(sid)
+        await engine.execute(sid, "ATTACH ':memory:' AS side")
+        assert await engine.refresh_schema(sid) == {"ok": True, "levels": levels, "default_path": path}
+        assert {"name": "side", "internal": False} in await engine.list_databases(sid)
         assert engine.sessions.get(sid).adapter.dialect_name() == adapter
     finally:
-        engine.disconnect(sid)
+        await engine.disconnect(sid)
 
 
-def test_completion_and_metadata_use_each_requests_catalog(engine):
-    sid = engine.connect("duckdb", {"uri": ":memory:"})["session_id"]
+async def test_completion_and_metadata_use_each_requests_catalog(engine):
+    sid = (await engine.connect("duckdb", {"uri": ":memory:"}))["session_id"]
     try:
-        engine.execute(sid, "ATTACH ':memory:' AS side")
+        await engine.execute(sid, "ATTACH ':memory:' AS side")
         for catalog, marker in (("memory", 1), ("side", 2)):
-            engine.execute(sid, f'CREATE SCHEMA {catalog}.sales')
-            engine.execute(sid, f'CREATE TABLE {catalog}.sales.products ({catalog}_id INTEGER)')
-            engine.execute(sid, f'CREATE TABLE {catalog}.main.shipments AS SELECT {marker} AS marker')
+            await engine.execute(sid, f'CREATE SCHEMA {catalog}.sales')
+            await engine.execute(sid, f'CREATE TABLE {catalog}.sales.products ({catalog}_id INTEGER)')
+            await engine.execute(sid, f'CREATE TABLE {catalog}.main.shipments AS SELECT {marker} AS marker')
         for catalog, marker in (("memory", 1), ("side", 2), ("memory", 1)):
             path = (catalog, "main")
-            items = engine.complete(sid, "SELECT * FROM ", path)
+            items = await engine.complete(sid, "SELECT * FROM ", path)
             assert [item["label"] for item in items] == ["shipments"]
-            assert engine.execute(sid, 'SELECT * FROM ' + items[0]["insert_text"])["rows"] == [[marker]]
-            columns = engine.complete(sid, "SELECT p. FROM sales.products p", path, len("SELECT p."))
+            assert (await engine.execute(sid, 'SELECT * FROM ' + items[0]["insert_text"]))["rows"] == [[marker]]
+            columns = await engine.complete(sid, "SELECT p. FROM sales.products p", path, len("SELECT p."))
             assert [item["label"] for item in columns] == [catalog + "_id"]
-        assert engine.sessions.get(sid).adapter.default_scope() == ("memory", "main")
+        assert await engine.sessions.get(sid).adapter.default_scope() == ("memory", "main")
     finally:
-        engine.disconnect(sid)
+        await engine.disconnect(sid)
 
 
-def test_failed_hierarchy_discovery_closes_unreported_session(engine, monkeypatch):
+async def test_failed_hierarchy_discovery_closes_unreported_session(engine, monkeypatch):
     from dbridge.adapters.sqlite import SqliteAdapter
     from dbridge.exceptions import AdapterQueryError
 
     adapters = []
 
-    def fail_discovery(adapter):
+    async def fail_discovery(adapter):
         adapters.append(adapter)
         raise AdapterQueryError("cannot discover default scope")
 
     monkeypatch.setattr(SqliteAdapter, "default_scope", fail_discovery)
     with pytest.raises(AdapterQueryError, match="cannot discover default scope"):
-        engine.connect("sqlite", {"uri": ":memory:"})
+        await engine.connect("sqlite", {"uri": ":memory:"})
     assert adapters[0].con is None
     assert engine.sessions._sessions == {}
+    assert engine._registries == {}
+
+
+async def test_cancelled_hierarchy_discovery_closes_unreported_session(engine, monkeypatch):
+    from dbridge.adapters.sqlite import SqliteAdapter
+
+    started = asyncio.Event()
+    adapters = []
+
+    async def blocked_discovery(adapter):
+        adapters.append(adapter)
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(SqliteAdapter, "default_scope", blocked_discovery)
+    task = asyncio.create_task(engine.connect("sqlite", {"uri": ":memory:"}))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert adapters[0].con is None
+    assert engine.sessions.ids() == ()
+    assert engine._registries == {}
+
+
+async def test_close_all_attempts_every_session_when_one_disconnect_fails(engine, monkeypatch):
+    first = await engine.connect("sqlite", {"uri": ":memory:"})
+    second = await engine.connect("sqlite", {"uri": ":memory:"})
+    failing = engine.sessions.get(first["session_id"]).adapter
+    other = engine.sessions.get(second["session_id"]).adapter
+    real_disconnect = failing.disconnect
+
+    async def close_then_fail():
+        await real_disconnect()
+        raise RuntimeError("failed after close")
+
+    disconnect = AsyncMock(side_effect=close_then_fail)
+    monkeypatch.setattr(failing, "disconnect", disconnect)
+    await engine.close_all()
+    disconnect.assert_awaited_once()
+    assert failing.con is None
+    assert other.con is None
+    assert engine.sessions.ids() == ()
     assert engine._registries == {}

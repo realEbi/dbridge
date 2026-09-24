@@ -47,7 +47,24 @@ Moving a supported port out of that directory includes it automatically. Ruff
 still checks parked source without importing its optional drivers.
 
 Use focused tests while changing behavior and run the server suite for runtime
-changes.
+changes. `pytest-asyncio` runs async tests and fixtures in auto mode with a loop
+per test. Await Adapter/Engine database methods and close every Session in fixture
+teardown; Profile operations and Adapter declarations remain synchronous.
+
+Concurrency ordering tests use Event-gated jobs rather than elapsed-time guesses.
+Real SQLite/DuckDB cancellation tests use explicit timeouts and verify the same
+Session remains usable. In-process pipe tests cover reply ordering and shutdown;
+subprocess tests also check exit status and clean stdout. Run both supported
+Python versions for changes to the execution model:
+
+```console
+uv run --python 3.11 --group types mypy src/dbridge tests
+uv run --python 3.11 ruff check src/dbridge tests
+uv run --python 3.11 --group test pytest --cov
+uv run --python 3.12 --group types mypy src/dbridge tests
+uv run --python 3.12 ruff check src/dbridge tests
+uv run --python 3.12 --group test pytest --cov
+```
 
 ### Coverage
 

@@ -11,9 +11,9 @@ database engines via a **stdio JSON-RPC 2.0** interface (LSP-style framing).
 Designed to back editor plugins and TUI clients like
 [dbridge.nvim](https://github.com/realebi/dbridge.nvim).
 
-The current server executes requests synchronously. See the
-[current architecture](docs/architecture.md) and the separate
-[roadmap](docs/roadmap.md) for the planned evolution.
+The server keeps accepting requests while queries run, supports cancellation, and
+returns replies in completion order. See the [current architecture](docs/architecture.md)
+and the separate [roadmap](docs/roadmap.md) for the planned evolution.
 
 ## Table of Contents
 
@@ -73,12 +73,14 @@ than editing the TOML themselves.
 
 ## JSON-RPC Methods
 
-All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` header).
+All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` counts UTF-8
+body bytes). Replies may arrive out of request order; clients correlate them by
+`id`. A request id must stay unique until its reply arrives.
 
 | Method | Params | Description |
 |---|---|---|
 | `dbridge/connect` | `profile` **or** `adapter` + `config?` | Open a Session → `{session_id, levels, default_path, dialect}` |
-| `dbridge/disconnect` | `session_id` | Close a session → `{ok}` |
+| `dbridge/disconnect` | `session_id` | Cancel the Session's outstanding work, then close it → `{ok}` |
 | `dbridge/execute` | `session_id`, `sql` | Run SQL → `{columns, rows, row_count, …}` |
 | `dbridge/listDatabases` | `session_id` | First-level containers → `[{name, internal}]`; rejects `path` |
 | `dbridge/listSchemas` | `session_id`, `path` | Child containers under a one-component path → `[{name, internal}]`; SQLite returns `[]` |
@@ -90,6 +92,7 @@ All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` header).
 | `dbridge/listProfiles` | — | Saved profiles → `{name: {adapter, config}}` |
 | `dbridge/saveProfile` | `name`, `adapter`, `config?` | Upsert a profile → `{ok}` |
 | `dbridge/deleteProfile` | `name` | Remove a profile → `{ok}` (false if absent) |
+| `$/cancelRequest` | `id` | Notification: cancel an outstanding request; no reply to the notification |
 
 **Supported adapters:** `sqlite`, `duckdb`
 
@@ -155,6 +158,58 @@ before `FROM products` filters to `name`. A bare `SELECT ` or a SELECT without a
 resolvable physical source offers dialect keywords. CTE/derived-table columns and
 outer correlated references remain deferred. See the
 [manual guide](docs/manual-testing-guide.md) for interactive checks.
+
+### Concurrent requests and cancellation
+
+Different Sessions can run queries concurrently. On one Session, `execute`
+requests keep arrival order. DuckDB can answer metadata and completion while a
+query runs on that Session; SQLite queues database work behind the query, but
+cached completion remains available. Wait for an execute reply before requesting
+metadata that must reflect its changes. A refresh prevents older in-flight
+introspection from repopulating the cache.
+
+Cancel an outstanding request by sending its id in a notification with no outer
+`id`:
+
+```json
+{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 42}}
+```
+
+The interrupted request replies with `QUERY_CANCELLED` (-32004), and the Session
+remains usable. Queued work is removed before it runs. Cancellation affects only
+the named request and is best effort: work that already finished or cannot be
+interrupted keeps its normal result. Earlier statements' effects in a cancelled
+multi-statement execute remain; cancellation does not roll them back. Unknown,
+completed, or malformed cancel ids are ignored without a reply.
+
+Disconnect rejects new work for that Session with `SESSION_NOT_FOUND`, cancels
+and drains its outstanding work, then closes its Adapter. Cancelling a disconnect
+after closing has started waits for cleanup and keeps the disconnect's normal
+outcome. Closing stdin also
+cancels outstanding work and closes Sessions within a fixed shutdown grace period.
+A driver that cannot stop is abandoned when that period expires; cleanup can be
+incomplete, but the process still exits successfully and reports it on stderr.
+
+### Errors and framing
+
+Errors use the JSON-RPC `error` object. The main codes are:
+
+| Code | Name | Meaning |
+|---|---|---|
+| -32700 | `PARSE_ERROR` | A complete frame body is not valid UTF-8 JSON; reply id is null and the next frame is still accepted |
+| -32600 | `INVALID_REQUEST` | Invalid request shape or parameters, including an id still in use |
+| -32601 | `METHOD_NOT_FOUND` | Unknown request method |
+| -32603 | `INTERNAL_ERROR` | An unexpected request failure |
+| -32001 | `CONNECTION_FAILED` | The Adapter could not connect |
+| -32002 | `QUERY_ERROR` | The Adapter could not execute SQL or read metadata |
+| -32003 | `SESSION_NOT_FOUND` | Unknown or closing Session |
+| -32004 | `QUERY_CANCELLED` | The named request was cancelled |
+| -32005 | `ADAPTER_NOT_SUPPORTED` | The requested Adapter is not registered |
+| -32006 | `PROFILE_NOT_FOUND` | The named Profile does not exist |
+
+A truncated body or an invalid/missing `Content-Length` cannot be safely
+resynchronized. The server logs the framing failure to stderr and follows its
+normal shutdown path. stdout remains reserved for complete protocol frames.
 
 **Environment variables** (prefix `dbridge_`):
 

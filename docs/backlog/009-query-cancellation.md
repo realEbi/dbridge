@@ -1,13 +1,15 @@
 # 009 - Cancel an in-flight query
 
 - Repo: dbridge, clients
-- Status: deferred
-- Change: none
+- Status: done
+- Change: [server](../../openspec/changes/archive/2026-09-24-adopt-async-orchestration/proposal.md); [dbridge.nvim](https://github.com/realEbi/dbridge.nvim/tree/dbridge-2.0/openspec/changes/archive/2026-09-24-cancel-outstanding-query)
 - Origin: Legacy backlog 3.2 and 4.2; retained from revision `80d71d4`.
 
 ## Problem / opportunity
 
-QUERY_CANCELLED (-32004) is reserved, but there is no cancel method or in-flight query tracking. The current transport loop cannot read another request while executing a query.
+The Phase 1 server reserved QUERY_CANCELLED (-32004) without a cancel method or
+outstanding-request tracking. Its synchronous transport could not read a cancel
+while executing a query.
 
 ## Desired outcome
 
@@ -15,4 +17,14 @@ Define query identity, cancellation races, adapter interruption, cleanup, and cl
 
 ## Notes and references
 
-Coordinate with [concurrent execution](012-concurrent-execution.md), [notifications](010-server-notifications.md), and [large results](013-large-results.md). Cancellation needs concurrent control, not necessarily a particular async library.
+The server now accepts `$/cancelRequest`, isolates cancellation by request id,
+removes queued work, and interrupts running SQLite/DuckDB jobs. Cancelled work
+returns `QUERY_CANCELLED`; Sessions remain usable and earlier statements' effects
+are retained. The linked client change owns `:DbridgeCancel` and its presentation.
+Verified with the Neovim Client on SQLite and DuckDB: `:DbridgeCancel` reports
+cancellation without replacing displayed results, the same Session executes again,
+and DuckDB completion remains responsive during a long query. Both linked changes
+are archived; the client suite passed 176 cases.
+
+[Notifications](010-server-notifications.md) and
+[large results](013-large-results.md) remain separate work.

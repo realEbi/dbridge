@@ -1,6 +1,6 @@
 # Synchronous core engine and adapters for Phase 1
 
-Status: accepted; still applicable until superseded by a new ADR.
+Status: superseded by [ADR-0003](0003-async-orchestration.md).
 
 ## Decision and rationale
 

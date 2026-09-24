@@ -17,8 +17,15 @@ The database-engine-specific implementation behind a single interface. The core 
 _Avoid_: driver, connector, backend
 
 **Session**:
-A live, server-side binding to one instantiated Adapter, identified by a `session_id`. Created fresh by `dbridge/connect` from a saved Profile or inline adapter/config data; not persisted. A Session holds no active metadata scope: clients send a Scope Path with each scoped metadata request. Multiple Sessions do not imply concurrent query execution.
+A live, server-side binding to one instantiated Adapter, identified by a `session_id`. Created fresh by `dbridge/connect` from a saved Profile or inline adapter/config data; not persisted. A Session holds no active metadata scope: clients send a Scope Path with each scoped metadata request. Work on different Sessions can run concurrently; each Adapter controls ordering within its Session.
 _Avoid_: connection (ambiguous — say Profile for the config, Session for the live object)
+
+**Lane**:
+A dedicated daemon thread and FIFO job queue owned by a thread-backed Adapter.
+A Lane runs blocking driver operations on their owning thread. SQLite has one
+Lane per Session; DuckDB has separate query and metadata Lanes. Lanes are an
+implementation choice for blocking drivers, not a requirement on native async
+Adapters.
 
 **Scope Path**:
 An ordered sequence of nonempty literal container names locating metadata within an

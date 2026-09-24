@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import sqlglot
 import sqlglot.expressions as exp
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
-from dbridge.adapters.base import ScopePath, TableRef
+from dbridge.adapters.base import ScopePath, TableEntry, TableRef
 
 # Tokens that indicate the cursor sits after a FROM or JOIN keyword.
 _FROM_JOIN_RE = re.compile(
@@ -196,11 +197,11 @@ def _select_tables(
     ]
 
 
-def complete(
+async def complete(
     sql: str,
-    list_tables_fn,          # () -> list[TableEntry], bound to the request path
-    get_columns_fn,          # (table: TableRef) -> list[str]
-    get_keywords_fn,         # () -> list[str]
+    list_tables_fn: Callable[[], Awaitable[list[TableEntry]]],
+    get_columns_fn: Callable[[TableRef], Awaitable[list[str]]],
+    get_keywords_fn: Callable[[], list[str]],
     path: ScopePath,
     position: int | None = None,
 ) -> list[dict]:
@@ -234,7 +235,7 @@ def complete(
                     detail=f"{table_label}.{col}",
                     sort_key=f"{table_label}.{col}".lower(),
                 ).to_dict()
-                for col in get_columns_fn(table.identity)
+                for col in await get_columns_fn(table.identity)
                 if col.casefold().startswith(partial)
             ]
         except Exception:
@@ -242,7 +243,7 @@ def complete(
 
     try:
         if _FROM_JOIN_RE.search(prefix.rstrip()):
-            tables = list_tables_fn()
+            tables = await list_tables_fn()
             return [
                 CompletionItem(
                     label=t.name, kind="table", detail="table", insert_text=t.sql_identifier,
@@ -264,7 +265,7 @@ def complete(
                                 label=col, kind="column", detail=f"{table_label}.{col}",
                                 sort_key=f"{table_label}.{col}".lower(),
                             )
-                            for col in get_columns_fn(table.identity)
+                            for col in await get_columns_fn(table.identity)
                             if col.casefold().startswith(partial)
                         )
                     except Exception:
@@ -276,7 +277,7 @@ def complete(
             columns = []
             for legacy_table in legacy_tables:
                 try:
-                    for col in get_columns_fn(legacy_table.identity):
+                    for col in await get_columns_fn(legacy_table.identity):
                         columns.append(
                             CompletionItem(
                                 label=col,

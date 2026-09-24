@@ -67,20 +67,18 @@ def test_empty_toml_returns_empty(tmp_path):
 # ── getERD and refreshSchema via Dispatcher ───────────────────────────────────
 
 @pytest.fixture
-def _dispatcher():
-    from dbridge.core.engine import Engine
+async def _dispatcher(engine):
     from dbridge.protocol.handlers import Dispatcher
-    engine = Engine()
-    sid = engine.connect("sqlite", {"uri": ":memory:"})["session_id"]
-    engine.execute(sid, "CREATE TABLE t (id INTEGER)")
+    sid = (await engine.connect("sqlite", {"uri": ":memory:"}))["session_id"]
+    await engine.execute(sid, "CREATE TABLE t (id INTEGER)")
     # warm the cache
-    engine.list_tables(sid, ("main",))
+    await engine.list_tables(sid, ("main",))
     return Dispatcher(engine), sid
 
 
-def test_get_erd_returns_placeholder(_dispatcher):
+async def test_get_erd_returns_placeholder(_dispatcher):
     dispatcher, sid = _dispatcher
-    resp = dispatcher.handle({
+    resp = await dispatcher.handle({
         "jsonrpc": "2.0", "id": 1,
         "method": "dbridge/getERD",
         "params": {"session_id": sid, "path": ["main"]},
@@ -90,9 +88,9 @@ def test_get_erd_returns_placeholder(_dispatcher):
     assert "t" in [entry["name"] for entry in result["tables"]]
 
 
-def test_get_erd_does_not_crash_on_empty_session(_dispatcher):
+async def test_get_erd_does_not_crash_on_empty_session(_dispatcher):
     dispatcher, sid = _dispatcher
-    resp = dispatcher.handle({
+    resp = await dispatcher.handle({
         "jsonrpc": "2.0", "id": 2,
         "method": "dbridge/getERD",
         "params": {"session_id": sid, "path": ["main"]},
@@ -100,9 +98,9 @@ def test_get_erd_does_not_crash_on_empty_session(_dispatcher):
     assert "error" not in resp
 
 
-def test_refresh_schema_returns_ok(_dispatcher):
+async def test_refresh_schema_returns_ok(_dispatcher):
     dispatcher, sid = _dispatcher
-    resp = dispatcher.handle({
+    resp = await dispatcher.handle({
         "jsonrpc": "2.0", "id": 3,
         "method": "dbridge/refreshSchema",
         "params": {"session_id": sid},
@@ -110,17 +108,15 @@ def test_refresh_schema_returns_ok(_dispatcher):
     assert resp["result"]["ok"] is True
 
 
-def test_refresh_schema_clears_cache(_dispatcher):
-    from dbridge.core.engine import Engine
-    engine = Engine()
-    sid = engine.connect("sqlite", {"uri": ":memory:"})["session_id"]
-    engine.execute(sid, "CREATE TABLE before (id INTEGER)")
-    engine.list_tables(sid, ("main",))  # populate cache
+async def test_refresh_schema_clears_cache(engine):
+    sid = (await engine.connect("sqlite", {"uri": ":memory:"}))["session_id"]
+    await engine.execute(sid, "CREATE TABLE before (id INTEGER)")
+    await engine.list_tables(sid, ("main",))  # populate cache
 
     # create a new table and refresh; it must now appear
-    engine.execute(sid, "CREATE TABLE after (id INTEGER)")
-    engine.refresh_schema(sid)
-    tables = engine.list_tables(sid, ("main",))
+    await engine.execute(sid, "CREATE TABLE after (id INTEGER)")
+    await engine.refresh_schema(sid)
+    tables = await engine.list_tables(sid, ("main",))
     assert "after" in [entry["name"] for entry in tables]
 
 
