@@ -4,8 +4,12 @@ import duckdb
 
 from dbridge.adapters.base import (
     ColumnDef,
+    ContainerEntry,
     DBAdapter,
     QueryResult,
+    ScopeLevel,
+    ScopePath,
+    TableEntry,
     TableRef,
     TableSchema,
 )
@@ -58,69 +62,79 @@ class DuckDBAdapter(DBAdapter):
             execution_time_ms=elapsed, warnings=[],
         )
 
-    def list_databases(self) -> list[str]:
-        rel = self._cur().execute(
-            "SELECT DISTINCT catalog_name FROM information_schema.schemata"
-        )
-        return [r[0] for r in rel.fetchall()]
+    def scope_levels(self) -> list[ScopeLevel]:
+        return [ScopeLevel(name="catalog", label="Catalog"), ScopeLevel(name="schema", label="Schema")]
 
-    def list_schemas(self, database: str | None = None) -> list[str]:
-        # Scope to the catalog when given: duckdb attaches several (system,
-        # temp, the file itself), and an unscoped query returns their schemas
-        # mixed together.
-        if database is None:
-            rel = self._cur().execute(
-                "SELECT DISTINCT schema_name FROM information_schema.schemata"
-            )
-        else:
-            rel = self._cur().execute(
-                "SELECT DISTINCT schema_name FROM information_schema.schemata "
-                "WHERE catalog_name=?",
-                [database],
-            )
-        return [r[0] for r in rel.fetchall()]
-
-    def list_tables(
-        self, database: str | None = None, schema: str | None = None
-    ) -> list[str]:
-        schema = schema or "main"
-        if database is None:
-            rel = self._cur().execute(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema=?",
-                [schema],
-            )
-        else:
-            rel = self._cur().execute(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema=? AND table_catalog=?",
-                [schema, database],
-            )
-        return [r[0] for r in rel.fetchall()]
-
-    def get_table_schema(self, fqn: str | TableRef) -> TableSchema:
-        if isinstance(fqn, TableRef):
-            table, schema, catalog = fqn.name, fqn.schema, fqn.database
-        else:
-            parts = fqn.split(".")
-            table = parts[-1]
-            schema = parts[-2] if len(parts) >= 2 else None
-            catalog = parts[-3] if len(parts) >= 3 else None
+    def default_scope(self) -> ScopePath:
         try:
-            if schema is None or catalog is None:
-                current = self._cur().execute(
-                    "SELECT current_database(), current_schema()"
-                ).fetchone()
-                assert current is not None, "current database/schema query returned no row"
-                current_catalog, current_schema = current
-                schema = schema or current_schema
-                catalog = catalog or current_catalog
+            current = self._cur().execute(
+                "SELECT current_database(), current_schema()"
+            ).fetchone()
+            assert current is not None, "current database/schema query returned no row"
+            return (current[0], current[1])
+        except Exception as e:
+            raise AdapterQueryError(str(e)) from e
+
+    @staticmethod
+    def _validate_path(path: ScopePath, arity: int) -> None:
+        if len(path) != arity or not all(isinstance(part, str) and part for part in path):
+            raise AdapterQueryError(f"DuckDB requires a {arity}-component Scope Path")
+
+    def list_databases(self) -> list[ContainerEntry]:
+        try:
+            rel = self._cur().execute(
+                "SELECT database_name, internal FROM duckdb_databases()"
+            )
+            return [ContainerEntry(name=name, internal=internal) for name, internal in rel.fetchall()]
+        except Exception as e:
+            raise AdapterQueryError(str(e)) from e
+
+    def list_schemas(self, path: ScopePath) -> list[ContainerEntry]:
+        self._validate_path(path, 1)
+        try:
+            rel = self._cur().execute(
+                "SELECT schema_name FROM information_schema.schemata WHERE catalog_name=?",
+                [path[0]],
+            )
+            return [
+                ContainerEntry(
+                    name=row[0],
+                    internal=path[0] in {"system", "temp"}
+                    or row[0] in {"information_schema", "pg_catalog"},
+                )
+                for row in rel.fetchall()
+            ]
+        except Exception as e:
+            raise AdapterQueryError(str(e)) from e
+
+    def list_tables(self, path: ScopePath) -> list[TableEntry]:
+        self._validate_path(path, 2)
+        try:
+            rel = self._cur().execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_catalog=? AND table_schema=?",
+                list(path),
+            )
+            return [
+                TableEntry(
+                    name=row[0],
+                    sql_identifier=".".join(quote_identifier(part) for part in (*path, row[0])),
+                )
+                for row in rel.fetchall()
+            ]
+        except Exception as e:
+            raise AdapterQueryError(str(e)) from e
+
+    def get_table_schema(self, table: TableRef) -> TableSchema:
+        self._validate_path(table.path, 2)
+        catalog, schema = table.path
+        try:
             rel = self._cur().execute(
                 "SELECT column_name, data_type, is_nullable "
                 "FROM information_schema.columns "
                 "WHERE table_name=? AND table_schema=? AND table_catalog=? "
                 "ORDER BY ordinal_position",
-                [table, schema, catalog],
+                [table.name, schema, catalog],
             )
             columns = [
                 ColumnDef(name=name, data_type=dtype, nullable=(nullable == "YES"))
@@ -128,9 +142,9 @@ class DuckDBAdapter(DBAdapter):
             ]
         except Exception as e:
             raise AdapterQueryError(str(e)) from e
-        identifier = ".".join(quote_identifier(part) for part in (catalog, schema, table))
+        identifier = ".".join(quote_identifier(part) for part in (*table.path, table.name))
         return TableSchema(
-            name=table, schema=schema, database=catalog,
+            name=table.name, scope=table.path,
             columns=columns, primary_keys=[], foreign_keys=[],
             sql_identifier=identifier if columns else None,
         )

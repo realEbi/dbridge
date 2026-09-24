@@ -77,37 +77,76 @@ All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` header).
 
 | Method | Params | Description |
 |---|---|---|
-| `dbridge/connect` | `profile` **or** `adapter` + `config` | Open a session → `{session_id}` |
+| `dbridge/connect` | `profile` **or** `adapter` + `config?` | Open a Session → `{session_id, levels, default_path, dialect}` |
 | `dbridge/disconnect` | `session_id` | Close a session → `{ok}` |
 | `dbridge/execute` | `session_id`, `sql` | Run SQL → `{columns, rows, row_count, …}` |
-| `dbridge/listDatabases` | `session_id` | List databases |
-| `dbridge/listSchemas` | `session_id`, `database?` | List schemas |
-| `dbridge/listTables` | `session_id`, `database?`, `schema?` | List tables |
-| `dbridge/getTableSchema` | `session_id`, `fqn`, `table?` | Column/PK/FK info and executable `sql_identifier` |
-| `dbridge/complete` | `session_id`, `sql`, `position?` | SQL completion items; `position` is the cursor's byte offset into `sql` (default: end) |
-| `dbridge/getERD` | `session_id` | ERD placeholder |
-| `dbridge/refreshSchema` | `session_id` | Clear schema cache |
+| `dbridge/listDatabases` | `session_id` | First-level containers → `[{name, internal}]`; rejects `path` |
+| `dbridge/listSchemas` | `session_id`, `path` | Child containers under a one-component path → `[{name, internal}]`; SQLite returns `[]` |
+| `dbridge/listTables` | `session_id`, `path` | Tables in a full path → `[{name, sql_identifier}]` |
+| `dbridge/getTableSchema` | `session_id`, `path`, `name` | `{name, scope, columns, primary_keys, foreign_keys, sql_identifier}` |
+| `dbridge/complete` | `session_id`, `path`, `sql`, `position?` | SQL completion items; `position` is the cursor's UTF-8 byte offset into `sql` (default: end) |
+| `dbridge/getERD` | `session_id`, `path` | Placeholder → `{status: "not_implemented", tables: [{name, sql_identifier}]}` |
+| `dbridge/refreshSchema` | `session_id` | Clear all metadata caches → `{ok, levels, default_path}` |
 | `dbridge/listProfiles` | — | Saved profiles → `{name: {adapter, config}}` |
 | `dbridge/saveProfile` | `name`, `adapter`, `config?` | Upsert a profile → `{ok}` |
 | `dbridge/deleteProfile` | `name` | Remove a profile → `{ok}` (false if absent) |
 
 **Supported adapters:** `sqlite`, `duckdb`
 
-`getTableSchema` adds `sql_identifier` for generated SQL: SQLite returns a quoted
-schema/table pair and DuckDB a quoted catalog/schema/table triple. Embedded double
-quotes are escaped. A missing table returns `sql_identifier: null`; clients should
-not generate a query from that result. Existing `listTables` results remain names.
+`connect` reports the hierarchy before the first scoped request. For SQLite, its
+result has this shape:
 
-For exact identity, additionally pass literal components in
-`table: {"name": "order.items", "database": "main", "schema": "main"}`.
-This object takes precedence over the required legacy `fqn`; its name is not split
-on dots. Omit optional scopes to use SQLite main or DuckDB's current catalog/schema.
-Existing fqn-only callers retain the dot-separated form, which cannot distinguish
-literal dots inside a name. SQLite listings and scoped metadata include attached
-database namespaces; its database/schema tree levels still describe one namespace.
+```json
+{
+  "session_id": "<session-id>",
+  "levels": [{"name": "namespace", "label": "Namespace"}],
+  "default_path": ["main"],
+  "dialect": "sqlite"
+}
+```
 
-SQL completion supports unquoted physical-table qualifiers in the current SELECT
-scope. For `SELECT p.name, p.category FROM products p LIMIT 100`, send the full
+DuckDB declares `[{"name": "catalog", "label": "Catalog"},
+{"name": "schema", "label": "Schema"}]` and reports its current catalog and
+schema as `default_path`, for example `["memory", "main"]`. `dialect` is `duckdb`.
+Clients use `levels` for hierarchy and `dialect` for SQL syntax. `refreshSchema`
+returns the authoritative current `levels` and `default_path`, plus `ok: true`.
+
+`path` is a required array of nonempty literal strings. Table listing, table
+metadata, ERD, and completion require a full path: one component for SQLite and
+two for DuckDB. `listSchemas` takes one first-level component; SQLite has no
+second tier. Missing paths, malformed components, and wrong arity return
+`INVALID_REQUEST`. `listDatabases` accepts no path. Containers are returned with
+an `internal` boolean; internal namespaces/catalogs and schemas remain visible.
+
+To inspect a literal table name, send `getTableSchema` params such as
+`{"session_id": "<session-id>", "path": ["main"], "name": "order.items"}`.
+The response reports `scope: ["main"]`; neither path components nor the name
+are split on dots. The legacy `fqn`, `table`, `database`, and `schema` inputs are
+rejected on scoped metadata requests. This is a breaking DSP change requiring
+clients to migrate together with the server.
+
+Both `listTables` entries and resolved `getTableSchema` results include an
+executable `sql_identifier`. It quotes every path component followed by the table
+name, doubling embedded double quotes: SQLite uses namespace/table and DuckDB
+uses catalog/schema/table. An unresolved table returns no columns and
+`sql_identifier: null`; clients should not generate a query from that result.
+All four metadata listings/lookups share the Session cache. Refresh after DDL or
+`ATTACH` to invalidate cached listings and metadata and re-read the hierarchy;
+execution does not invalidate them automatically.
+
+The server stores no selected metadata scope. Each request's `path` controls its
+own metadata lookup. `execute` takes SQL without a path and uses the database
+engine's SQL resolution rules; selecting a metadata path does not issue `USE` or
+otherwise alter those rules.
+
+SQL completion lists tables only from the request's full Scope Path. Table
+suggestions display the literal name and insert the executable fully qualified
+`sql_identifier`, including for tables inside that path. A partly qualified SQL
+source fills its missing leading containers from the request's path; an explicitly
+qualified source keeps its own containers.
+
+Column completion supports unquoted physical-table qualifiers in the current SELECT
+scope. For `SELECT p.name, p.category FROM products p LIMIT 100`, send the path, full
 SQL and a cursor `position` immediately after either `p.` to receive product
 columns. Typing `p.na` filters to matching names; insertion text is the column
 name alone. Unqualified SELECT targets also offer columns from physical sources

@@ -2,7 +2,8 @@
 
 import pytest
 
-from dbridge.adapters.base import TableRef
+from dbridge.adapters.base import TableEntry, TableRef
+from dbridge.adapters.duckdb import DuckDBAdapter
 
 from dbridge.core.completion import (
     CompletionItem,
@@ -10,7 +11,11 @@ from dbridge.core.completion import (
     complete,
 )
 
-TABLES = ["users", "orders", "products"]
+PATH = ("memory", "main")
+TABLES = [
+    TableEntry(name, f'"memory"."main"."{name}"')
+    for name in ("users", "orders", "products")
+]
 COLUMNS = {
     "users": ["id", "name", "email"],
     "orders": ["id", "user_id", "total"],
@@ -23,8 +28,9 @@ def _complete(sql, position=None):
     return complete(
         sql,
         list_tables_fn=lambda: TABLES,
-        get_columns_fn=lambda t: COLUMNS.get(t.name if isinstance(t, TableRef) else t, []),
+        get_columns_fn=lambda t: COLUMNS.get(t.name, []),
         get_keywords_fn=lambda: KEYWORDS,
+        path=PATH,
         position=position,
     )
 
@@ -255,6 +261,7 @@ def test_cte_name_case_does_not_expose_shadowed_physical_table(cte_name, referen
         list_tables_fn=lambda: TABLES,
         get_columns_fn=get_columns,
         get_keywords_fn=lambda: KEYWORDS,
+        path=PATH,
         position=len(before.encode("utf-8")),
     )
 
@@ -268,8 +275,9 @@ def test_explicit_schema_reference_is_not_shadowed_by_same_named_cte():
         before + " FROM main.products p",
         list_tables_fn=lambda: TABLES,
         get_columns_fn=lambda table: COLUMNS["products"]
-        if table == TableRef("products", schema="main") else [],
+        if table == TableRef("products", PATH) else [],
         get_keywords_fn=lambda: KEYWORDS,
+        path=PATH,
         position=len(before.encode("utf-8")),
     )
 
@@ -277,10 +285,10 @@ def test_explicit_schema_reference_is_not_shadowed_by_same_named_cte():
 
 
 @pytest.mark.parametrize(("source", "identity"), [
-    ("first.products", TableRef("products", schema="first")),
-    ("catalog.first.products", TableRef("products", database="catalog", schema="first")),
+    ("first.products", TableRef("products", ("memory", "first"))),
+    ("catalog.first.products", TableRef("products", ("catalog", "first"))),
     ('"catalog.with.dot"."first.with.dot"."products.with.dot"',
-     TableRef("products.with.dot", database="catalog.with.dot", schema="first.with.dot")),
+     TableRef("products.with.dot", ("catalog.with.dot", "first.with.dot"))),
 ])
 def test_qualified_lookup_preserves_physical_source_schema_and_catalog(source, identity):
     queried_tables = []
@@ -296,6 +304,7 @@ def test_qualified_lookup_preserves_physical_source_schema_and_catalog(source, i
         list_tables_fn=lambda: TABLES,
         get_columns_fn=get_columns,
         get_keywords_fn=lambda: KEYWORDS,
+        path=PATH,
         position=len("SELECT p."),
     )
 
@@ -329,10 +338,11 @@ def test_qualified_metadata_failure_returns_no_unrelated_suggestions():
         list_tables_fn=lambda: TABLES,
         get_columns_fn=get_columns,
         get_keywords_fn=lambda: KEYWORDS,
+        path=PATH,
     )
 
     assert items == []
-    assert queried_tables == [TableRef("products")]
+    assert queried_tables == [TableRef("products", PATH)]
 
 
 @pytest.mark.parametrize("marked_sql", [
@@ -442,7 +452,7 @@ def test_unparseable_sql_outside_a_known_context_returns_keywords():
 def test_a_table_whose_columns_cannot_be_read_is_skipped():
     """One failing table must not lose the other tables' columns."""
     def get_columns(table):
-        if table == TableRef("orders"):
+        if table == TableRef("orders", PATH):
             raise RuntimeError("introspection failed")
         return COLUMNS.get(table.name, [])
 
@@ -451,6 +461,7 @@ def test_a_table_whose_columns_cannot_be_read_is_skipped():
         list_tables_fn=lambda: TABLES,
         get_columns_fn=get_columns,
         get_keywords_fn=lambda: KEYWORDS,
+        path=PATH,
         position=7,
     )
 
@@ -469,6 +480,7 @@ def test_failing_list_tables_falls_back_to_keywords():
         list_tables_fn=list_tables,
         get_columns_fn=lambda t: [],
         get_keywords_fn=lambda: KEYWORDS,
+        path=PATH,
     )
 
     assert {i["kind"] for i in items} == {"keyword"}
@@ -476,15 +488,17 @@ def test_failing_list_tables_falls_back_to_keywords():
 
 def test_table_extraction_swallows_a_parser_error():
     """sqlglot raises on an empty statement; the helper must return [] not raise."""
-    assert _extract_tables_from_sql("") == []
-    assert _extract_tables_from_sql("   ") == []
+    assert _extract_tables_from_sql("", PATH) == []
+    assert _extract_tables_from_sql("   ", PATH) == []
 
 
 def test_table_extraction_finds_tables_in_from_and_join():
     tables = _extract_tables_from_sql(
-        "SELECT * FROM users JOIN orders ON users.id = orders.user_id"
+        "SELECT * FROM users JOIN orders ON users.id = orders.user_id", PATH,
     )
-    assert set(tables) == {"users", "orders"}
+    assert {table.identity for table in tables} == {
+        TableRef("users", PATH), TableRef("orders", PATH),
+    }
 
 
 # Unqualified SELECT target expressions use the cursor's SELECT scope.
@@ -568,7 +582,7 @@ def test_unqualified_select_fallback_does_not_introspect_other_sources(marked_sq
 
     before, after = marked_sql.split("|")
     items = complete(
-        before + after, unexpected_lookup, unexpected_lookup, lambda: KEYWORDS,
+        before + after, unexpected_lookup, unexpected_lookup, lambda: KEYWORDS, PATH,
         position=len(before.encode("utf-8")),
     )
     assert [item["label"] for item in items] == KEYWORDS
@@ -597,9 +611,9 @@ def test_unqualified_select_preserves_schema_and_catalog_lookup():
     before = "SELECT id, "
     items = complete(
         before + " FROM warehouse.retail.products",
-        lambda: [], get_columns, lambda: KEYWORDS, position=len(before),
+        lambda: [], get_columns, lambda: KEYWORDS, PATH, position=len(before),
     )
-    assert queried == [TableRef("products", database="warehouse", schema="retail")]
+    assert queried == [TableRef("products", ("warehouse", "retail"))]
     assert items[0]["detail"] == "warehouse.retail.products.name"
 
 
@@ -608,6 +622,105 @@ def test_unqualified_select_skips_unavailable_metadata_without_keyword_fallback(
         raise RuntimeError("introspection failed")
 
     assert complete(
-        "SELECT id,  FROM products", lambda: [], unavailable, lambda: KEYWORDS,
+        "SELECT id,  FROM products", lambda: [], unavailable, lambda: KEYWORDS, PATH,
         position=len("SELECT id, "),
+    ) == []
+
+
+@pytest.fixture
+def catalog_adapter():
+    adapter = DuckDBAdapter({"uri": ":memory:"})
+    adapter.connect()
+    try:
+        for catalog in ("memory", "side", "other"):
+            if catalog != "memory":
+                adapter.execute(f"ATTACH ':memory:' AS {catalog}")
+            adapter.execute(f"CREATE TABLE {catalog}.main.shipments (origin VARCHAR)")
+            adapter.execute(f"INSERT INTO {catalog}.main.shipments VALUES ('{catalog}')")
+            adapter.execute(f"CREATE SCHEMA {catalog}.sales")
+            adapter.execute(f"CREATE TABLE {catalog}.sales.products ({catalog}_column INTEGER)")
+        yield adapter
+    finally:
+        adapter.disconnect()
+
+
+@pytest.mark.parametrize("catalog", ["memory", "side", "other"])
+def test_table_completion_stays_in_requested_path_and_executes_exact_table(
+    catalog_adapter, catalog,
+):
+    path = (catalog, "main")
+    items = complete(
+        "SELECT * FROM ",
+        list_tables_fn=lambda: catalog_adapter.list_tables(path),
+        get_columns_fn=lambda table: [
+            column.name for column in catalog_adapter.get_table_schema(table).columns
+        ],
+        get_keywords_fn=catalog_adapter.get_keywords,
+        path=path,
+    )
+
+    assert [item["label"] for item in items] == ["shipments"]
+    assert items[0]["insert_text"] == f'"{catalog}"."main"."shipments"'
+    result = catalog_adapter.execute("SELECT origin FROM " + items[0]["insert_text"])
+    assert result.rows == [[catalog]]
+
+
+@pytest.mark.parametrize("name", ["order details", "select", 'quoted"name', "literal.dot"])
+def test_table_completion_preserves_adapter_identifier_for_literal_names(catalog_adapter, name):
+    path = ("side", "main")
+    quoted_name = '"' + name.replace('"', '""') + '"'
+    catalog_adapter.execute(f"CREATE TABLE side.main.{quoted_name} (value INTEGER)")
+    catalog_adapter.execute(f"INSERT INTO side.main.{quoted_name} VALUES (42)")
+    items = complete(
+        "SELECT * FROM ",
+        lambda: catalog_adapter.list_tables(path), lambda table: [],
+        catalog_adapter.get_keywords, path,
+    )
+
+    item = next(item for item in items if item["label"] == name)
+    assert item["insert_text"] == f'"side"."main".{quoted_name}'
+    assert catalog_adapter.execute("SELECT * FROM " + item["insert_text"]).rows == [[42]]
+
+
+@pytest.mark.parametrize(("source", "catalog"), [
+    ("sales.products", "side"),
+    ("other.sales.products", "other"),
+])
+@pytest.mark.parametrize("marked_sql", [
+    "SELECT p.| FROM {source} p",
+    "SELECT | FROM {source} p",
+    "SELECT * FROM {source} WHERE |",
+])
+def test_column_sources_resolve_from_request_path_and_keep_written_detail(
+    catalog_adapter, source, catalog, marked_sql,
+):
+    before, after = marked_sql.format(source=source).split("|")
+    items = complete(
+        before + after,
+        list_tables_fn=lambda: [],
+        get_columns_fn=lambda table: [
+            column.name for column in catalog_adapter.get_table_schema(table).columns
+        ],
+        get_keywords_fn=catalog_adapter.get_keywords,
+        path=("side", "main"), position=len(before.encode("utf-8")),
+    )
+
+    assert [item["label"] for item in items] == [f"{catalog}_column"]
+    assert items[0]["insert_text"] == f"{catalog}_column"
+    assert items[0]["detail"] == f"{source}.{catalog}_column"
+
+
+@pytest.mark.parametrize(("source", "path"), [
+    ("catalog.main.products", ("main",)),
+    ("extra.catalog.main.products", ("catalog", "main")),
+    ("catalog..products", ("catalog", "main")),
+])
+def test_source_with_unsupported_qualification_does_not_select_another_table(source, path):
+    def unexpected_lookup(table):
+        pytest.fail("Unsupported qualification must not resolve a different table")
+
+    before = "SELECT p."
+    assert complete(
+        before + f" FROM {source} p", lambda: [], unexpected_lookup, lambda: KEYWORDS,
+        path, position=len(before),
     ) == []

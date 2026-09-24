@@ -1,6 +1,6 @@
 from dataclasses import asdict
 
-from dbridge.adapters.base import TableRef
+from dbridge.adapters.base import ScopePath, TableRef
 from dbridge.config.profiles import delete_profile, get_profile, load_profiles, save_profile
 from dbridge.config.settings import settings
 from dbridge.core import executor
@@ -28,10 +28,26 @@ class Engine:
         if adapter_name is None:
             raise InvalidRequestError("connect requires either 'profile' or 'adapter'")
         session = self.sessions.create(adapter_name, config or {})
-        self._registries[session.id] = SchemaRegistry(
-            session.adapter, ttl_seconds=settings.cache_ttl_seconds
-        )
-        return {"session_id": session.id}
+        try:
+            self._registries[session.id] = SchemaRegistry(
+                session.adapter, ttl_seconds=settings.cache_ttl_seconds
+            )
+            return {
+                "session_id": session.id,
+                **self._hierarchy(session.id),
+                "dialect": session.adapter.dialect_name(),
+            }
+        except Exception:
+            # A failed handshake must not leave a live Session the client cannot address.
+            self.disconnect(session.id)
+            raise
+
+    def _hierarchy(self, session_id: str) -> dict:
+        adapter = self.sessions.get(session_id).adapter
+        return {
+            "levels": [asdict(level) for level in adapter.scope_levels()],
+            "default_path": list(adapter.default_scope()),
+        }
 
     def disconnect(self, session_id: str) -> dict:
         self.sessions.close(session_id)
@@ -43,54 +59,45 @@ class Engine:
         result = executor.execute(session, sql, settings.max_rows)
         return asdict(result)
 
-    def list_databases(self, session_id: str) -> list[str]:
-        return self.sessions.get(session_id).adapter.list_databases()
-
-    def list_schemas(self, session_id: str, database: str | None = None) -> list[str]:
-        return self.sessions.get(session_id).adapter.list_schemas(database)
-
-    def list_tables(self, session_id: str, database=None, schema=None) -> list[str]:
-        # Touch the session first so an unknown id raises before cache lookup.
+    def list_databases(self, session_id: str) -> list[dict]:
         self.sessions.get(session_id)
-        return self._registries[session_id].list_tables(database, schema)
+        return [asdict(entry) for entry in self._registries[session_id].list_databases()]
 
-    def get_table_schema(self, session_id: str, fqn: str, table: dict | None = None) -> dict:
+    def list_schemas(self, session_id: str, path: ScopePath) -> list[dict]:
         self.sessions.get(session_id)
-        identity: str | TableRef = fqn
-        if table is not None:
-            if (
-                not isinstance(table, dict)
-                or not isinstance(table.get("name"), str)
-                or not table["name"]
-                or any(
-                    value is not None and (not isinstance(value, str) or not value)
-                    for value in (table.get("database"), table.get("schema"))
-                )
-            ):
-                raise InvalidRequestError(
-                    "table requires a nonempty string name and optional string database/schema"
-                )
-            identity = TableRef(table["name"], table.get("database"), table.get("schema"))
-        return asdict(self._registries[session_id].get_table_schema(identity))
+        return [asdict(entry) for entry in self._registries[session_id].list_schemas(path)]
 
-    def get_erd(self, session_id: str) -> dict:
+    def list_tables(self, session_id: str, path: ScopePath) -> list[dict]:
         self.sessions.get(session_id)
-        tables = self._registries[session_id].list_tables()
-        return {"status": "not_implemented", "tables": tables}
+        return [asdict(entry) for entry in self._registries[session_id].list_tables(path)]
+
+    def get_table_schema(self, session_id: str, path: ScopePath, name: str) -> dict:
+        self.sessions.get(session_id)
+        result = asdict(
+            self._registries[session_id].get_table_schema(TableRef(name, path))
+        )
+        result["scope"] = list(result["scope"])
+        return result
+
+    def get_erd(self, session_id: str, path: ScopePath) -> dict:
+        return {"status": "not_implemented", "tables": self.list_tables(session_id, path)}
 
     def refresh_schema(self, session_id: str) -> dict:
         self.sessions.get(session_id)
         self._registries[session_id].refresh()
-        return {"ok": True}
+        return {"ok": True, **self._hierarchy(session_id)}
 
-    def complete(self, session_id: str, sql: str, position: int | None = None) -> list[dict]:
+    def complete(
+        self, session_id: str, sql: str, path: ScopePath, position: int | None = None,
+    ) -> list[dict]:
         session = self.sessions.get(session_id)
         registry = self._registries[session_id]
         return _complete(
             sql,
-            list_tables_fn=lambda: registry.list_tables(),
+            list_tables_fn=lambda: registry.list_tables(path),
             get_columns_fn=lambda t: [c.name for c in registry.get_table_schema(t).columns],
             get_keywords_fn=session.adapter.get_keywords,
+            path=path,
             position=position,
         )
 

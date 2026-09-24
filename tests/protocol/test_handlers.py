@@ -1,3 +1,5 @@
+import pytest
+
 from dbridge.core.engine import Engine
 from dbridge.protocol import errors
 from dbridge.protocol.handlers import Dispatcher
@@ -101,7 +103,9 @@ def test_connect_by_profile_name(isolated_profiles):
 
     sid = _rpc(d, 2, "dbridge/connect", {"profile": "mem"})["result"]["session_id"]
     _rpc(d, 3, "dbridge/execute", {"session_id": sid, "sql": "CREATE TABLE t (id INTEGER)"})
-    assert _rpc(d, 4, "dbridge/listTables", {"session_id": sid})["result"] == ["t"]
+    assert _rpc(d, 4, "dbridge/listTables", {"session_id": sid, "path": ["main"]})["result"] == [
+        {"name": "t", "sql_identifier": '"main"."t"'},
+    ]
 
 
 def test_connect_with_unknown_profile_returns_profile_not_found(isolated_profiles):
@@ -178,3 +182,77 @@ def test_successful_response_shape():
     assert resp["jsonrpc"] == "2.0"
     assert resp["id"] == 7
     assert "error" not in resp
+
+
+@pytest.mark.parametrize("method", ["listSchemas", "listTables", "getTableSchema", "getERD", "complete"])
+@pytest.mark.parametrize("path_params", [{}, {"path": None}, {"path": "main"}, {"path": []},
+                                         {"path": [1]}, {"path": [""]},
+                                         {"path": ["main", "main"]}])
+def test_invalid_scope_path_returns_error_and_dispatcher_stays_available(
+    engine_session, method, path_params,
+):
+    engine, sid = engine_session
+    d = Dispatcher(engine)
+    params = {"session_id": sid, "sql": "SELECT ", "name": "products", **path_params}
+    assert _rpc(d, 1, "dbridge/" + method, params)["error"]["code"] == errors.INVALID_REQUEST
+    assert _rpc(d, 2, "dbridge/execute", {"session_id": sid, "sql": "SELECT 1"})[
+        "result"
+    ]["rows"] == [[1]]
+
+
+@pytest.mark.parametrize("path", [None, [], ["main"]])
+def test_list_databases_rejects_any_supplied_path(engine_session, path):
+    engine, sid = engine_session
+    d = Dispatcher(engine)
+    assert _rpc(d, 1, "dbridge/listDatabases", {"session_id": sid, "path": path})[
+        "error"
+    ]["code"] == errors.INVALID_REQUEST
+    assert _rpc(d, 2, "dbridge/listDatabases", {"session_id": sid})["result"] == [
+        {"name": "main", "internal": False},
+    ]
+
+
+@pytest.mark.parametrize("legacy", [{"fqn": "main.products"}, {"table": {"name": "products"}},
+                                    {"database": "main"}, {"schema": "main"}])
+def test_legacy_identity_is_rejected_even_with_valid_path(engine_session, legacy):
+    engine, sid = engine_session
+    response = _rpc(Dispatcher(engine), 1, "dbridge/getTableSchema", {
+        "session_id": sid, "path": ["main"], "name": "products", **legacy,
+    })
+    assert response["error"]["code"] == errors.INVALID_REQUEST
+
+
+@pytest.mark.parametrize("name", [None, "", 1, [], {"name": "products"}])
+def test_table_name_requires_nonempty_literal_string(engine_session, name):
+    engine, sid = engine_session
+    response = _rpc(Dispatcher(engine), 1, "dbridge/getTableSchema", {
+        "session_id": sid, "path": ["main"], "name": name,
+    })
+    assert response["error"]["code"] == errors.INVALID_REQUEST
+
+
+def test_duckdb_operation_arity_and_scoped_rpc_results(engine):
+    d = Dispatcher(engine)
+    connected = _rpc(d, 1, "dbridge/connect", {"adapter": "duckdb"})["result"]
+    sid = connected["session_id"]
+    try:
+        engine.execute(sid, "CREATE TABLE orders (id INTEGER)")
+        assert _rpc(d, 2, "dbridge/listTables", {"session_id": sid, "path": ["memory"]})[
+            "error"
+        ]["code"] == errors.INVALID_REQUEST
+        schemas = _rpc(d, 3, "dbridge/listSchemas", {"session_id": sid, "path": ["memory"]})["result"]
+        assert {"name": "main", "internal": False} in schemas
+        assert _rpc(d, 4, "dbridge/listSchemas", {"session_id": sid, "path": ["memory", "main"]})[
+            "error"
+        ]["code"] == errors.INVALID_REQUEST
+        params = {"session_id": sid, "path": ["memory", "main"]}
+        listed = _rpc(d, 5, "dbridge/listTables", params)["result"]
+        assert listed == [{"name": "orders", "sql_identifier": '"memory"."main"."orders"'}]
+        assert _rpc(d, 6, "dbridge/getERD", params)["result"] == {
+            "status": "not_implemented", "tables": listed,
+        }
+        assert _rpc(d, 7, "dbridge/refreshSchema", {"session_id": sid})["result"] == {
+            "ok": True, "levels": connected["levels"], "default_path": connected["default_path"],
+        }
+    finally:
+        engine.disconnect(sid)

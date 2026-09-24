@@ -48,11 +48,11 @@ def test_sessions_have_distinct_ids():
 
 
 def test_new_session_has_no_active_scope():
-    """active_database/active_schema start unset; no protocol method sets them."""
+    """Metadata scope belongs to each request, not the Session."""
     mgr = SessionManager()
     session = mgr.create("sqlite", {"uri": ":memory:"})
-    assert session.active_database is None
-    assert session.active_schema is None
+    assert not hasattr(session, "active_database")
+    assert not hasattr(session, "active_schema")
 
 
 def test_unsupported_adapter_raises():

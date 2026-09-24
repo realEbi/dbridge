@@ -1,3 +1,4 @@
+from dbridge.adapters.base import ScopePath
 from dbridge.config.profiles import ProfileNotFoundError
 from dbridge.core.engine import Engine
 from dbridge.core.session import SessionNotFoundError
@@ -21,20 +22,18 @@ class Dispatcher:
             ),
             "dbridge/disconnect": lambda p: engine.disconnect(p["session_id"]),
             "dbridge/execute": lambda p: engine.execute(p["session_id"], p["sql"]),
-            "dbridge/listDatabases": lambda p: engine.list_databases(p["session_id"]),
+            "dbridge/listDatabases": self._list_databases,
             "dbridge/listSchemas": lambda p: engine.list_schemas(
-                p["session_id"], p.get("database")
+                p["session_id"], self._path(p, schemas=True)
             ),
             "dbridge/listTables": lambda p: engine.list_tables(
-                p["session_id"], p.get("database"), p.get("schema")
+                p["session_id"], self._path(p)
             ),
-            "dbridge/getTableSchema": lambda p: engine.get_table_schema(
-                p["session_id"], p["fqn"], p.get("table")
-            ),
+            "dbridge/getTableSchema": self._get_table_schema,
             "dbridge/complete": lambda p: engine.complete(
-                p["session_id"], p["sql"], p.get("position")
+                p["session_id"], p["sql"], self._path(p), p.get("position")
             ),
-            "dbridge/getERD": lambda p: engine.get_erd(p["session_id"]),
+            "dbridge/getERD": lambda p: engine.get_erd(p["session_id"], self._path(p)),
             "dbridge/refreshSchema": lambda p: engine.refresh_schema(p["session_id"]),
             "dbridge/listProfiles": lambda p: engine.list_profiles(),
             "dbridge/saveProfile": lambda p: engine.save_profile(
@@ -42,6 +41,32 @@ class Dispatcher:
             ),
             "dbridge/deleteProfile": lambda p: engine.delete_profile(p["name"]),
         }
+
+    def _path(self, params: dict, *, schemas: bool = False) -> ScopePath:
+        adapter = self.engine.sessions.get(params["session_id"]).adapter
+        if any(key in params for key in ("database", "schema", "fqn", "table")):
+            raise InvalidRequestError("use path and a literal name instead of legacy scope fields")
+        path = params.get("path")
+        arity = 1 if schemas else len(adapter.scope_levels())
+        if (
+            not isinstance(path, list)
+            or len(path) != arity
+            or any(not isinstance(part, str) or not part for part in path)
+        ):
+            raise InvalidRequestError(f"path requires {arity} nonempty string components")
+        return tuple(path)
+
+    def _list_databases(self, params: dict) -> list[dict]:
+        if "path" in params:
+            raise InvalidRequestError("listDatabases does not accept a path")
+        return self.engine.list_databases(params["session_id"])
+
+    def _get_table_schema(self, params: dict) -> dict:
+        path = self._path(params)
+        name = params.get("name")
+        if not isinstance(name, str) or not name:
+            raise InvalidRequestError("name requires a nonempty string")
+        return self.engine.get_table_schema(params["session_id"], path, name)
 
     def handle(self, request: dict) -> dict | None:
         try:

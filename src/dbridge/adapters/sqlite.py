@@ -3,9 +3,13 @@ import time
 
 from dbridge.adapters.base import (
     ColumnDef,
+    ContainerEntry,
     DBAdapter,
     ForeignKey,
     QueryResult,
+    ScopeLevel,
+    ScopePath,
+    TableEntry,
     TableRef,
     TableSchema,
 )
@@ -67,44 +71,50 @@ class SqliteAdapter(DBAdapter):
             execution_time_ms=elapsed, warnings=[],
         )
 
-    def list_databases(self) -> list[str]:
-        return [row[1] for row in self._cur().execute("PRAGMA database_list").fetchall()]
+    def scope_levels(self) -> list[ScopeLevel]:
+        return [ScopeLevel(name="namespace", label="Namespace")]
 
-    def list_schemas(self, database: str | None = None) -> list[str]:
-        namespace = database or "main"
-        return [namespace] if namespace in self.list_databases() else []
+    def default_scope(self) -> ScopePath:
+        databases = self.list_databases()
+        return (next(entry.name for entry in databases if entry.name == "main"),)
+
+    def list_databases(self) -> list[ContainerEntry]:
+        try:
+            rows = self._cur().execute("PRAGMA database_list").fetchall()
+        except sqlite3.Error as e:
+            raise AdapterQueryError(str(e)) from e
+        return [ContainerEntry(name=row[1], internal=row[1] == "temp") for row in rows]
+
+    def list_schemas(self, path: ScopePath) -> list[ContainerEntry]:
+        self._namespace(path)
+        return []
 
     @staticmethod
-    def _namespace(database: str | None, schema: str | None) -> str:
-        if database and schema and database != schema:
-            raise AdapterQueryError("SQLite database and schema must name the same namespace")
-        return schema or database or "main"
+    def _namespace(path: ScopePath) -> str:
+        if len(path) != 1 or not all(isinstance(part, str) and part for part in path):
+            raise AdapterQueryError("SQLite requires a one-component Scope Path")
+        return path[0]
 
-    def list_tables(
-        self, database: str | None = None, schema: str | None = None
-    ) -> list[str]:
+    def list_tables(self, path: ScopePath) -> list[TableEntry]:
         cur = self._cur()
-        namespace = quote_identifier(self._namespace(database, schema))
+        namespace = quote_identifier(self._namespace(path))
         try:
             cur.execute(f"SELECT name FROM {namespace}.sqlite_master WHERE type='table'")
-            return [r[0] for r in cur.fetchall()]
+            return [
+                TableEntry(name=row[0], sql_identifier=f"{namespace}.{quote_identifier(row[0])}")
+                for row in cur.fetchall()
+            ]
         except sqlite3.Error as e:
             raise AdapterQueryError(str(e)) from e
 
-    def get_table_schema(self, fqn: str | TableRef) -> TableSchema:
-        if isinstance(fqn, TableRef):
-            table = fqn.name
-            namespace = self._namespace(fqn.database, fqn.schema)
-        else:
-            parts = fqn.split(".")
-            table = parts[-1]
-            namespace = parts[-2] if len(parts) >= 2 else "main"
+    def get_table_schema(self, table: TableRef) -> TableSchema:
+        namespace = self._namespace(table.path)
         cur = self._cur()
-        identifier = f"{quote_identifier(namespace)}.{quote_identifier(table)}"
+        identifier = f"{quote_identifier(namespace)}.{quote_identifier(table.name)}"
         try:
-            cur.execute(f"PRAGMA {quote_identifier(namespace)}.table_info({quote_identifier(table)})")
+            cur.execute(f"PRAGMA {quote_identifier(namespace)}.table_info({quote_identifier(table.name)})")
             column_rows = cur.fetchall()
-            cur.execute(f"PRAGMA {quote_identifier(namespace)}.foreign_key_list({quote_identifier(table)})")
+            cur.execute(f"PRAGMA {quote_identifier(namespace)}.foreign_key_list({quote_identifier(table.name)})")
             foreign_rows = cur.fetchall()
         except sqlite3.Error as e:
             raise AdapterQueryError(str(e)) from e
@@ -127,7 +137,7 @@ class SqliteAdapter(DBAdapter):
                 )
             )
         return TableSchema(
-            name=table, schema=namespace, database=namespace,
+            name=table.name, scope=table.path,
             columns=columns, primary_keys=pks, foreign_keys=fks,
             sql_identifier=identifier if columns else None,
         )

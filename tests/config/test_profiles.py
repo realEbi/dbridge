@@ -74,7 +74,7 @@ def _dispatcher():
     sid = engine.connect("sqlite", {"uri": ":memory:"})["session_id"]
     engine.execute(sid, "CREATE TABLE t (id INTEGER)")
     # warm the cache
-    engine.list_tables(sid)
+    engine.list_tables(sid, ("main",))
     return Dispatcher(engine), sid
 
 
@@ -83,11 +83,11 @@ def test_get_erd_returns_placeholder(_dispatcher):
     resp = dispatcher.handle({
         "jsonrpc": "2.0", "id": 1,
         "method": "dbridge/getERD",
-        "params": {"session_id": sid},
+        "params": {"session_id": sid, "path": ["main"]},
     })
     result = resp["result"]
     assert result["status"] == "not_implemented"
-    assert "t" in result["tables"]
+    assert "t" in [entry["name"] for entry in result["tables"]]
 
 
 def test_get_erd_does_not_crash_on_empty_session(_dispatcher):
@@ -95,7 +95,7 @@ def test_get_erd_does_not_crash_on_empty_session(_dispatcher):
     resp = dispatcher.handle({
         "jsonrpc": "2.0", "id": 2,
         "method": "dbridge/getERD",
-        "params": {"session_id": sid},
+        "params": {"session_id": sid, "path": ["main"]},
     })
     assert "error" not in resp
 
@@ -115,13 +115,13 @@ def test_refresh_schema_clears_cache(_dispatcher):
     engine = Engine()
     sid = engine.connect("sqlite", {"uri": ":memory:"})["session_id"]
     engine.execute(sid, "CREATE TABLE before (id INTEGER)")
-    engine.list_tables(sid)  # populate cache
+    engine.list_tables(sid, ("main",))  # populate cache
 
     # create a new table and refresh; it must now appear
     engine.execute(sid, "CREATE TABLE after (id INTEGER)")
     engine.refresh_schema(sid)
-    tables = engine.list_tables(sid)
-    assert "after" in tables
+    tables = engine.list_tables(sid, ("main",))
+    assert "after" in [entry["name"] for entry in tables]
 
 
 # ── profile writes ────────────────────────────────────────────────────────────
