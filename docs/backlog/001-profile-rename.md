@@ -1,8 +1,8 @@
 # 001 - Rename Profiles without leaving duplicates
 
-- Repo: dbridge.nvim
-- Status: deferred
-- Change: none
+- Repo: dbridge, dbridge.nvim
+- Status: planned
+- Change: [server](../../openspec/changes/rename-profiles-atomically/proposal.md), [client](https://github.com/realEbi/dbridge.nvim/tree/dbridge-2.0/openspec/changes/rename-profiles-atomically)
 - Origin: Legacy backlog 1.1; retained from revision `80d71d4`.
 
 ## Problem / opportunity
