@@ -85,9 +85,19 @@ implemented.
 ## Schema browsing and completion
 
 Each Session has an in-memory TTL cache (default 60 seconds) for `listTables` and
-`getTableSchema`, keyed by their arguments. `refreshSchema` clears it. Database
+`getTableSchema`, keyed by their arguments (including literal structured table identity). `refreshSchema` clears it. Database
 and schema listings bypass this cache; query execution does not automatically
 invalidate it after DDL. There is no persistent or shared cache.
+
+TableSchema includes an Adapter-owned `sql_identifier`: double-quoted
+schema/table components for SQLite, catalog/schema/table for DuckDB. The additive
+`getTableSchema.table` object carries raw name/database/schema components and takes
+precedence over the legacy dot-separated fqn; listTables continues returning names.
+The registry uses an immutable TableRef as its structured cache key. DuckDB
+unscoped metadata uses its current catalog/schema instead of combining same-named
+tables. SQLite listings and metadata honor attached namespaces without changing
+the existing redundant database/schema hierarchy. Unresolved tables return a null
+identifier. Metadata failures remain errors, not permission to use a bare name.
 
 SQLite reports column metadata, primary keys, and foreign keys. DuckDB reports
 columns but currently returns empty primary/foreign key lists. `getERD` returns
@@ -99,14 +109,32 @@ resolved against physical FROM/JOIN sources in the cursor's SELECT scope. A
 temporary cursor marker lets sqlglot parse the unfinished column without losing
 the following FROM clause. Resolution preserves nested-query and statement
 boundaries; returned insertion text is the bare column name. Unresolvable
-qualifiers and metadata failures return no qualified suggestions.
+qualifiers and metadata failures return no qualified suggestions. Physical source
+components travel as structured table identities through the schema registry, so
+literal dots in quoted table/schema/catalog names cannot select a different
+namespace. Completion detail/sort text remains separate from metadata identity.
 
-The existing unqualified path classifies the text before the cursor and extracts
-tables from full SQL: FROM/JOIN contexts offer tables, SELECT/WHERE/AND/OR/ON
-contexts offer columns, and other contexts fall back to dialect keywords. This
-path still uses whole-statement table extraction. CTE/derived-table projections,
-outer correlated references, quoted qualifier syntax, unqualified SELECT commas,
-values, and richer ranking remain deferred. See the [backlog](backlog/README.md).
+Unqualified SELECT target expressions use the same cursor marker and exact SELECT
+scope. They offer columns of that scope's physical FROM/JOIN sources, including
+after commas, inside expressions, and for typed prefixes. Source order and schema
+column order are preserved, with duplicate labels retaining physical table detail.
+When no physical source resolves, including bare `SELECT `, completion returns
+dialect keywords without introspecting other tables. Metadata failures skip the
+affected source; no matching column prefix returns an empty list.
+
+FROM/JOIN contexts still offer tables. The legacy unqualified WHERE/AND/OR/ON
+path still uses whole-statement table extraction; other contexts fall back to
+dialect keywords. CTE/derived-table projections, outer correlated references,
+quoted qualifier syntax, values, and richer ranking remain deferred. See the
+[backlog](backlog/README.md).
+
+## Diagnostics
+
+Named server loggers reuse their existing direct handlers. If none is configured,
+logger setup installs one console handler writing to stderr, preserving stdout
+for protocol frames. Repeated Adapter construction does not multiply handlers or
+diagnostic lines. Embedding applications retain handlers they configure explicitly;
+the requested logger level can change without adding a new console handler.
 
 ## Verification evidence
 

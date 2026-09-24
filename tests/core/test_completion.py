@@ -2,6 +2,8 @@
 
 import pytest
 
+from dbridge.adapters.base import TableRef
+
 from dbridge.core.completion import (
     CompletionItem,
     _extract_tables_from_sql,
@@ -21,7 +23,7 @@ def _complete(sql, position=None):
     return complete(
         sql,
         list_tables_fn=lambda: TABLES,
-        get_columns_fn=lambda t: COLUMNS.get(t, []),
+        get_columns_fn=lambda t: COLUMNS.get(t.name if isinstance(t, TableRef) else t, []),
         get_keywords_fn=lambda: KEYWORDS,
         position=position,
     )
@@ -265,9 +267,8 @@ def test_explicit_schema_reference_is_not_shadowed_by_same_named_cte():
     items = complete(
         before + " FROM main.products p",
         list_tables_fn=lambda: TABLES,
-        get_columns_fn=lambda table: COLUMNS["products"] if table in {
-            "products", "main.products"
-        } else [],
+        get_columns_fn=lambda table: COLUMNS["products"]
+        if table == TableRef("products", schema="main") else [],
         get_keywords_fn=lambda: KEYWORDS,
         position=len(before.encode("utf-8")),
     )
@@ -275,13 +276,18 @@ def test_explicit_schema_reference_is_not_shadowed_by_same_named_cte():
     assert [item["label"] for item in items] == COLUMNS["products"]
 
 
-@pytest.mark.parametrize("source", ["first.products", "catalog.first.products"])
-def test_qualified_lookup_preserves_physical_source_schema_and_catalog(source):
+@pytest.mark.parametrize(("source", "identity"), [
+    ("first.products", TableRef("products", schema="first")),
+    ("catalog.first.products", TableRef("products", database="catalog", schema="first")),
+    ('"catalog.with.dot"."first.with.dot"."products.with.dot"',
+     TableRef("products.with.dot", database="catalog.with.dot", schema="first.with.dot")),
+])
+def test_qualified_lookup_preserves_physical_source_schema_and_catalog(source, identity):
     queried_tables = []
 
     def get_columns(table):
         queried_tables.append(table)
-        if table == source:
+        if table == identity:
             return ["selected_source_column"]
         return ["unrelated_source_column"]
 
@@ -293,7 +299,7 @@ def test_qualified_lookup_preserves_physical_source_schema_and_catalog(source):
         position=len("SELECT p."),
     )
 
-    assert queried_tables == [source]
+    assert queried_tables == [identity]
     assert [item["label"] for item in items] == ["selected_source_column"]
 
 
@@ -326,7 +332,7 @@ def test_qualified_metadata_failure_returns_no_unrelated_suggestions():
     )
 
     assert items == []
-    assert queried_tables == ["products"]
+    assert queried_tables == [TableRef("products")]
 
 
 @pytest.mark.parametrize("marked_sql", [
@@ -421,14 +427,10 @@ def test_none_position_means_end_of_string():
 
 # ── failures degrade to a usable result instead of raising ────────────────────
 
-def test_unparseable_sql_does_not_propagate():
-    """sqlglot raising inside table extraction must be swallowed.
-
-    "SELECT " classifies as a column context, but sqlglot cannot parse it, so no
-    table is in scope and the result is empty. Pins current behavior: a bare
-    SELECT offers nothing rather than falling back to keywords.
-    """
-    assert _complete("SELECT ") == []
+def test_bare_select_returns_keywords():
+    items = _complete("SELECT ")
+    assert [item["label"] for item in items] == KEYWORDS
+    assert {item["kind"] for item in items} == {"keyword"}
 
 
 def test_unparseable_sql_outside_a_known_context_returns_keywords():
@@ -440,9 +442,9 @@ def test_unparseable_sql_outside_a_known_context_returns_keywords():
 def test_a_table_whose_columns_cannot_be_read_is_skipped():
     """One failing table must not lose the other tables' columns."""
     def get_columns(table):
-        if table == "orders":
+        if table == TableRef("orders"):
             raise RuntimeError("introspection failed")
-        return COLUMNS.get(table, [])
+        return COLUMNS.get(table.name, [])
 
     items = complete(
         "SELECT  FROM users JOIN orders ON users.id = orders.user_id",
@@ -483,3 +485,129 @@ def test_table_extraction_finds_tables_in_from_and_join():
         "SELECT * FROM users JOIN orders ON users.id = orders.user_id"
     )
     assert set(tables) == {"users", "orders"}
+
+
+# Unqualified SELECT target expressions use the cursor's SELECT scope.
+
+@pytest.mark.parametrize("marked_sql", [
+    "SELECT | FROM products",
+    "SELECT |FROM products",
+    "SELECT id, | FROM products",
+    "SELECT id, |FROM products",
+    "SELECT id,\n | FROM products",
+    "SELECT DISTINCT | FROM products",
+    "SELECT COALESCE(|, '') FROM products",
+    "SELECT id + | FROM products",
+    "SELECT 'café ☕',\n | FROM products",
+    "SELECT __dbridge_completion__, | FROM products",
+])
+def test_unqualified_select_targets_return_schema_order(marked_sql):
+    items = _complete_at_cursor(marked_sql)
+    assert items == [
+        {
+            "label": column, "kind": "column",
+            "detail": f"products.{column}", "insert_text": column,
+            "sort_key": f"products.{column}",
+        }
+        for column in COLUMNS["products"]
+    ]
+
+
+@pytest.mark.parametrize(("marked_sql", "expected"), [
+    ("SELECT na| FROM products", ["name"]),
+    ("SELECT id, NA| FROM products", ["name"]),
+    ("SELECT id, na|me FROM products", ["name"]),
+    ("SELECT 'café',\n COALESCE(na|me, '') FROM products", ["name"]),
+    ("SELECT id, |name FROM products", COLUMNS["products"]),
+    ("SELECT id, missing| FROM products", []),
+])
+def test_unqualified_select_prefix_matches_case_insensitively(marked_sql, expected):
+    items = _complete_at_cursor(marked_sql)
+    assert [item["label"] for item in items] == expected
+    assert [item["insert_text"] for item in items] == expected
+
+
+@pytest.mark.parametrize(("marked_sql", "table"), [
+    ("SELECT | FROM products WHERE EXISTS (SELECT id FROM orders)", "products"),
+    ("SELECT id FROM products WHERE EXISTS (SELECT | FROM orders)", "orders"),
+    ("SELECT (SELECT id FROM orders), (SELECT | FROM products)", "products"),
+    ("SELECT | FROM products UNION SELECT id FROM orders", "products"),
+    ("SELECT id FROM orders UNION SELECT | FROM products", "products"),
+    ("SELECT id FROM orders; SELECT | FROM products", "products"),
+    ("SELECT | FROM products; SELECT id FROM orders", "products"),
+    ("WITH p AS (SELECT | FROM products) SELECT * FROM p", "products"),
+    ("SELECT | FROM products JOIN (SELECT * FROM orders) o ON 1=1", "products"),
+])
+def test_unqualified_select_uses_only_current_scope(marked_sql, table):
+    items = _complete_at_cursor(marked_sql)
+    assert [item["label"] for item in items] == COLUMNS[table]
+    assert all(item["detail"].startswith(table + ".") for item in items)
+
+
+@pytest.mark.parametrize("marked_sql", [
+    "SELECT |",
+    "SELECT id, |",
+    "SELECT id FROM products; SELECT |",
+    "SELECT (SELECT |) FROM products",
+    "SELECT | FROM (SELECT * FROM products) p",
+    "WITH p AS (SELECT * FROM products) SELECT | FROM p",
+    "WITH PRODUCTS AS (SELECT * FROM orders) SELECT | FROM products",
+    "WITH products AS (SELECT * FROM orders) SELECT | FROM PRODUCTS",
+    "SELECT id AS na|me FROM products",
+    "SELECT id na|me FROM products",
+    'SELECT "na|me" FROM products',
+    "SELECT 'SELECT |' FROM products",
+    "SELECT 'id, |' FROM products",
+    "SELECT /* SELECT id, | */ id FROM products",
+    "SELECT id -- SELECT |\n FROM products",
+    "SELECT ((( |",
+])
+def test_unqualified_select_fallback_does_not_introspect_other_sources(marked_sql):
+    def unexpected_lookup(*args):
+        pytest.fail("Fallback must not list tables or introspect columns")
+
+    before, after = marked_sql.split("|")
+    items = complete(
+        before + after, unexpected_lookup, unexpected_lookup, lambda: KEYWORDS,
+        position=len(before.encode("utf-8")),
+    )
+    assert [item["label"] for item in items] == KEYWORDS
+    assert {item["kind"] for item in items} == {"keyword"}
+
+
+def test_unqualified_select_preserves_join_source_order_and_duplicate_details():
+    items = _complete_at_cursor(
+        "SELECT id, | FROM orders o JOIN products p ON o.id = p.id"
+    )
+    assert [item["detail"] for item in items] == [
+        f"{table}.{column}"
+        for table in ("orders", "products")
+        for column in COLUMNS[table]
+    ]
+    assert [item["label"] for item in items].count("id") == 2
+
+
+def test_unqualified_select_preserves_schema_and_catalog_lookup():
+    queried = []
+
+    def get_columns(table):
+        queried.append(table)
+        return ["name"]
+
+    before = "SELECT id, "
+    items = complete(
+        before + " FROM warehouse.retail.products",
+        lambda: [], get_columns, lambda: KEYWORDS, position=len(before),
+    )
+    assert queried == [TableRef("products", database="warehouse", schema="retail")]
+    assert items[0]["detail"] == "warehouse.retail.products.name"
+
+
+def test_unqualified_select_skips_unavailable_metadata_without_keyword_fallback():
+    def unavailable(table):
+        raise RuntimeError("introspection failed")
+
+    assert complete(
+        "SELECT id,  FROM products", lambda: [], unavailable, lambda: KEYWORDS,
+        position=len("SELECT id, "),
+    ) == []

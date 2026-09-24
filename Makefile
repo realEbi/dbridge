@@ -3,11 +3,12 @@
 UV ?= uv
 PYTEST_ARGS ?=
 
-.PHONY: help manual-prepare test test-cov
+.PHONY: help manual-prepare check test test-cov
 
 help:
 	@printf '%s\n' \
 		'make manual-prepare  Sync dependencies and rebuild persistent SQLite/DuckDB samples (resets sample data)' \
+		'make check           Run type and lint checks' \
 		'make test            Run the automated test suite' \
 		'make test-cov        Run the suite with the 85% coverage gate' \
 		'make help            Show these commands' \
@@ -16,6 +17,10 @@ help:
 
 manual-prepare:
 	$(UV) run python scripts/make_sample_db.py
+
+check:
+	$(UV) run --group types mypy src/dbridge tests
+	$(UV) run ruff check src/dbridge tests
 
 test:
 	$(UV) run --group test pytest $(PYTEST_ARGS)

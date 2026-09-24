@@ -1,15 +1,24 @@
 # 054 - Make the type checker pass
 
 - Repo: dbridge
-- Status: deferred
-- Change: none
+- Status: done
+- Change: [restore-server-quality-checks](../../openspec/changes/archive/2026-09-23-restore-server-quality-checks/)
 - Origin: Observed while raising test coverage ([archived change](../../openspec/changes/archive/2026-09-12-raise-test-coverage/proposal.md)).
 
-## Problem / opportunity
+## Resolution
+
+The full documented mypy command now reports zero errors in 46 source files.
+Only unregistered `adapters/_parked/` modules are excluded from recursive discovery;
+the SQLite URI is narrowed before assignment and the broken logger cache is gone.
+`make check` runs types and lint, and both checks now run within the unchanged
+Python 3.11/3.12 CI matrix alongside the 85% coverage gate. Adapter ports remain
+owned by 019/020/021; no optional driver was added.
+
+## Original problem / opportunity
 
 `uv run --group types mypy src/dbridge tests` reports 21 errors in 5 files on
 revision `e16c443`. [docs/development.md](../development.md) lists the command as
-a standard check, but it has never been clean, so its output carries no signal:
+a standard check, but it had never been clean at that revision, so its output carried no signal:
 a new error is indistinguishable from the existing noise.
 
 The errors fall into three groups:
@@ -42,6 +51,5 @@ those adapters is separately owned work; that alone removes 19 of the 21.
 
 ## Notes and references
 
-Run `uv run --group types mypy src/dbridge tests`. Adding mypy to CI is
-premature while it fails. The coverage change deliberately did not fix these:
+Run `uv run --group types mypy src/dbridge tests`. Mypy was not added to CI until the recorded findings were fixed. The coverage change deliberately did not fix these:
 they are pre-existing and unrelated to test coverage.

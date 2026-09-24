@@ -31,7 +31,6 @@ Make the existing server/client path predictable: target the right Session and
 table, preserve Profiles, refresh metadata, and execute the intended statement.
 
 Key work includes [Profile renames](backlog/001-profile-rename.md),
-[qualified identifiers](backlog/002-qualified-identifiers.md),
 [database hierarchies](backlog/003-database-hierarchy.md),
 [cache coverage](backlog/004-introspection-cache-coverage.md),
 [DuckDB constraints](backlog/005-duckdb-constraints.md),
@@ -44,7 +43,18 @@ cross-repository integration when a user-visible flow spans both.
 
 Local verification tooling now provides `make manual-prepare` for reusable sample
 databases and `make test` / `make test-cov` for automated checks. See the
-[manual guide](manual-testing-guide.md). The daily-use outcomes above remain open.
+[manual guide](manual-testing-guide.md). Generated table queries now use server-provided
+quoted identifiers, preserving SQLite namespaces and DuckDB catalog/schema identity.
+Session-preserving refresh, visible query targeting, and statement-under-cursor
+execution are also implemented and verified with the Neovim Client. See
+[002](backlog/002-qualified-identifiers.md), [028](backlog/028-active-session-indicator.md),
+[029](backlog/029-client-schema-refresh.md), and [006](backlog/006-statement-under-cursor.md).
+
+Type and lint checks are clean and run in the existing CI matrix (`make check`
+locally). Logger reuse preserves one diagnostic handler; see the verified
+[quality-check maintenance change](../openspec/changes/archive/2026-09-23-restore-server-quality-checks/).
+Profile rename, browsing hierarchy, broader cache coverage, DuckDB constraints,
+and dialect reporting remain open; this milestone is not complete.
 
 ## 2. Responsive queries and larger results
 
@@ -76,9 +86,11 @@ and [functions](backlog/044-function-completion.md). Consider
 ## 4. Richer SQL assistance
 
 Completion now resolves [physical-table aliases](backlog/015-alias-completion.md)
-within the cursor's SELECT scope, including after a SELECT comma. Extend it with
+and [unqualified SELECT targets](backlog/018-select-comma-completion.md) within the
+cursor's SELECT scope, including after commas and inside expressions. A
+[bare SELECT](backlog/053-bare-select-offers-nothing.md) offers dialect keywords
+until a physical source can be resolved. Extend this with
 [derived and correlated sources](backlog/055-completion-derived-and-correlated-sources.md),
-[unqualified SELECT targets](backlog/018-select-comma-completion.md),
 [values](backlog/016-value-completion.md), and
 [ranking](backlog/017-completion-ranking.md). Explore
 [custom providers](backlog/025-completion-providers.md) using real needs such as

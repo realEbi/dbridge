@@ -43,6 +43,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
+      - name: Check Python types
+        run: >-
+          uv run --python ${{ matrix.python-version }} --group types
+          mypy src/dbridge tests
+
+      - name: Lint Python source and tests
+        run: >-
+          uv run --python ${{ matrix.python-version }} --group dev
+          ruff check src/dbridge tests
+
       - name: Run the server suite with coverage
         # --python is explicit rather than relying on UV_PYTHON being exported,
         # so the job cannot silently test the runner's default interpreter.

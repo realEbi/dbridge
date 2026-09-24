@@ -1,4 +1,4 @@
-"""SQL completion for tables, scoped qualified columns, and dialect keywords."""
+"""SQL completion for tables, scoped SELECT columns, and dialect keywords."""
 from __future__ import annotations
 
 import re
@@ -6,21 +6,24 @@ from dataclasses import dataclass
 
 import sqlglot
 import sqlglot.expressions as exp
-from sqlglot.optimizer.scope import traverse_scope
+from sqlglot.optimizer.scope import Scope, traverse_scope
+
+from dbridge.adapters.base import TableRef
 
 # Tokens that indicate the cursor sits after a FROM or JOIN keyword.
 _FROM_JOIN_RE = re.compile(
     r"\b(?:FROM|JOIN)\s*\w*$", re.IGNORECASE
 )
-# Tokens that indicate the cursor sits in a SELECT or WHERE clause.
-_SELECT_WHERE_RE = re.compile(
-    r"\b(?:SELECT|WHERE|AND|OR|ON)\s*\w*$", re.IGNORECASE
+# The legacy unqualified predicate path; SELECT targets are resolved by scope.
+_WHERE_RE = re.compile(
+    r"\b(?:WHERE|AND|OR|ON)\s*\w*$", re.IGNORECASE
 )
 # A potential unquoted qualifier; parsing below confirms this is a column,
 # rather than a table, a string literal, or a comment.
 _QUALIFIED_COLUMN_RE = re.compile(
     r"(?<![\w.])(?P<qualifier>[^\W\d]\w*)\s*\.\s*(?P<partial>\w*)$"
 )
+_UNQUALIFIED_COLUMN_RE = re.compile(r"(?<![\w.])(?P<partial>\w*)$")
 
 
 @dataclass
@@ -80,8 +83,10 @@ def _extract_tables_from_sql(sql: str) -> list[str]:
         return []
 
 
-def _qualified_table(sql: str, prefix: str, match: re.Match[str]) -> str | None:
-    """Resolve the column at the cursor to a physical source in its SELECT.
+def _column_scope(
+    sql: str, prefix: str, match: re.Match[str],
+) -> tuple[exp.Column, Scope] | None:
+    """Find the marked column and the SELECT scope containing it.
 
     Replacing the unfinished identifier keeps ``p. FROM`` from being parsed as
     the column ``p.FROM``. The unique marker also identifies the cursor's exact
@@ -94,7 +99,10 @@ def _qualified_table(sql: str, prefix: str, match: re.Match[str]) -> str | None:
     # Remove the right-hand part too when the cursor is inside an existing name.
     cursor = len(prefix)
     suffix = re.split(r"\W", sql[cursor:], maxsplit=1)[0]
-    repaired = sql[:match.start("partial")] + marker + sql[cursor + len(suffix):]
+    # An empty target directly before FROM has no identifier suffix to replace.
+    # Separate the marker so the clause remains parseable without a second space.
+    suffix_length = 0 if not match["partial"] and suffix.upper() == "FROM" else len(suffix)
+    repaired = sql[:match.start("partial")] + marker + " " + sql[cursor + suffix_length:]
     for tree in sqlglot.parse(repaired, error_level=sqlglot.ErrorLevel.IGNORE):
         if tree is None:
             continue
@@ -105,31 +113,68 @@ def _qualified_table(sql: str, prefix: str, match: re.Match[str]) -> str | None:
         for scope in traverse_scope(tree):
             if scope.expression is not select:
                 continue
-            sources = [
-                source for alias, (_, source) in scope.selected_sources.items()
-                if alias.casefold() == column.table.casefold()
-            ]
-            if len(sources) == 1 and isinstance(sources[0], exp.Table):
-                source = sources[0]
-                # sqlglot's source map is case-sensitive; SQLite/DuckDB CTE
-                # references are not. Do not mistake a differently cased CTE
-                # reference for a physical table of the same name.
-                if not source.db and not source.catalog and any(
-                    name.casefold() == source.name.casefold()
-                    for name in scope.cte_sources
-                ):
-                    return None
-                return ".".join(part.name for part in source.parts)
-            # Unknown, ambiguous, derived, and CTE sources must not borrow
-            # physical columns from another scope. Outer references are deferred.
-            return None
+            return column, scope
     return None
+
+
+def _physical_table(source: exp.Expression | Scope, scope: Scope) -> TableRef | None:
+    if not isinstance(source, exp.Table):
+        return None
+    # sqlglot's source map is case-sensitive; SQLite/DuckDB CTE references are
+    # not. A differently cased CTE must not expose a physical table's columns.
+    if not source.db and not source.catalog and any(
+        name.casefold() == source.name.casefold() for name in scope.cte_sources
+    ):
+        return None
+    # Keep decoded identifier components separate: a literal "sales.products"
+    # must never become the table products in the sales namespace on lookup.
+    return TableRef(source.name, database=source.catalog or None, schema=source.db or None)
+
+
+def _table_label(table: TableRef) -> str:
+    """Preserve display/sort detail without using that lossy text as an identity."""
+    return ".".join(part for part in (table.database, table.schema, table.name) if part)
+
+
+def _qualified_table(sql: str, prefix: str, match: re.Match[str]) -> TableRef | None:
+    found = _column_scope(sql, prefix, match)
+    if found is None:
+        return None
+    column, scope = found
+    sources = [
+        source for alias, (_, source) in scope.selected_sources.items()
+        if alias.casefold() == column.table.casefold()
+    ]
+    # Unknown, ambiguous, derived, and CTE sources must not borrow physical
+    # columns from another scope. Outer references are deferred.
+    return _physical_table(sources[0], scope) if len(sources) == 1 else None
+
+
+def _select_tables(sql: str, prefix: str, match: re.Match[str]) -> list[TableRef]:
+    found = _column_scope(sql, prefix, match)
+    if found is None:
+        return []
+    column, scope = found
+    if column.table or column.this.args.get("quoted"):
+        return []
+    # A Column can also occur in WHERE/ORDER BY/etc. Only SELECT projections
+    # belong to this path, including columns nested in a target expression.
+    if not any(
+        column is node
+        for target in scope.expression.expressions
+        for node in target.walk()
+    ):
+        return []
+    return [
+        table for _, source in scope.selected_sources.values()
+        if (table := _physical_table(source, scope)) is not None
+    ]
 
 
 def complete(
     sql: str,
     list_tables_fn,          # () -> list[str]
-    get_columns_fn,          # (table: str) -> list[str]
+    get_columns_fn,          # (table: str | TableRef) -> list[str]
     get_keywords_fn,         # () -> list[str]
     position: int | None = None,
 ) -> list[dict]:
@@ -138,7 +183,8 @@ def complete(
 
     - alias.column position → columns of its physical table in the current SELECT
     - FROM/JOIN position  → table names
-    - SELECT/WHERE position → column names of tables already in scope
+    - SELECT target       → columns of physical tables in the current SELECT
+    - WHERE position      → columns using legacy statement-wide extraction
     - otherwise           → dialect keywords
 
     *position* is an optional byte offset of the cursor into *sql*; ``None``
@@ -153,13 +199,14 @@ def complete(
             table = _qualified_table(sql, prefix, qualified)
             if table is None:
                 return []
+            table_label = _table_label(table)
             partial = qualified["partial"].casefold()
             return [
                 CompletionItem(
                     label=col,
                     kind="column",
-                    detail=f"{table}.{col}",
-                    sort_key=f"{table}.{col}".lower(),
+                    detail=f"{table_label}.{col}",
+                    sort_key=f"{table_label}.{col}".lower(),
                 ).to_dict()
                 for col in get_columns_fn(table)
                 if col.casefold().startswith(partial)
@@ -167,28 +214,47 @@ def complete(
         except Exception:
             return []
 
-    prefix = prefix.rstrip()
-
     try:
-        if _FROM_JOIN_RE.search(prefix):
+        if _FROM_JOIN_RE.search(prefix.rstrip()):
             tables = list_tables_fn()
             return [
                 CompletionItem(label=t, kind="table", detail="table").to_dict()
                 for t in tables
             ]
 
-        if _SELECT_WHERE_RE.search(prefix):
-            in_scope = _extract_tables_from_sql(sql.rstrip())
-            columns: list[CompletionItem] = []
-            for table in in_scope:
+        unqualified = _UNQUALIFIED_COLUMN_RE.search(prefix)
+        if unqualified:
+            in_scope = _select_tables(sql, prefix, unqualified)
+            if in_scope:
+                partial = unqualified["partial"].casefold()
+                columns: list[CompletionItem] = []
+                for table in in_scope:
+                    table_label = _table_label(table)
+                    try:
+                        columns.extend(
+                            CompletionItem(
+                                label=col, kind="column", detail=f"{table_label}.{col}",
+                                sort_key=f"{table_label}.{col}".lower(),
+                            )
+                            for col in get_columns_fn(table)
+                            if col.casefold().startswith(partial)
+                        )
+                    except Exception:
+                        pass
+                return [c.to_dict() for c in columns]
+
+        if _WHERE_RE.search(prefix.rstrip()):
+            legacy_tables = _extract_tables_from_sql(sql.rstrip())
+            columns = []
+            for legacy_table in legacy_tables:
                 try:
-                    for col in get_columns_fn(table):
+                    for col in get_columns_fn(legacy_table):
                         columns.append(
                             CompletionItem(
                                 label=col,
                                 kind="column",
-                                detail=f"{table}.{col}",
-                                sort_key=f"{table}.{col}".lower(),
+                                detail=f"{legacy_table}.{col}",
+                                sort_key=f"{legacy_table}.{col}".lower(),
                             )
                         )
                 except Exception:

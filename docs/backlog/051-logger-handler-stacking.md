@@ -1,11 +1,18 @@
 # 051 - Stop get_logger from stacking duplicate handlers
 
 - Repo: dbridge
-- Status: deferred
-- Change: none
+- Status: done
+- Change: [restore-server-quality-checks](../../openspec/changes/archive/2026-09-23-restore-server-quality-checks/)
 - Origin: Observed while raising test coverage ([archived change](../../openspec/changes/archive/2026-09-12-raise-test-coverage/proposal.md)).
 
-## Problem / opportunity
+## Resolution
+
+Removed the unused cache and reused each named logger's direct handlers. The
+default server logger receives one stderr console handler across repeated Adapter
+construction; explicit embedding handlers are preserved. Tests assert one emitted
+message, no stdout output, and effective level updates without stacking handlers.
+
+## Original problem / opportunity
 
 [logging/__init__.py](../../src/dbridge/logging/__init__.py) declares a module
 cache, reads it, and never writes to it:
@@ -59,6 +66,5 @@ frames — and any fix must preserve that.
 
 [logging/__init__.py](../../src/dbridge/logging/__init__.py),
 [adapters/base.py](../../src/dbridge/adapters/base.py) (`DBAdapter.__init__`).
-`tests/test_logging.py::test_repeated_get_logger_stacks_handlers` pins the
-current behavior and must be updated to assert a single handler when this is
-fixed. Related: [037 - observability](037-observability.md).
+The former `test_repeated_get_logger_stacks_handlers` regression record has
+been replaced by tests asserting idempotent setup and single stderr output. Related: [037 - observability](037-observability.md).

@@ -6,8 +6,10 @@ from dbridge.adapters.base import (
     DBAdapter,
     ForeignKey,
     QueryResult,
+    TableRef,
     TableSchema,
 )
+from dbridge.adapters.identifiers import quote_identifier
 from dbridge.exceptions import AdapterConnectionError, AdapterQueryError
 
 # A small dialect keyword set is enough for tier-1 completion.
@@ -24,9 +26,10 @@ class SqliteAdapter(DBAdapter):
 
     def __init__(self, config: dict[str, str]) -> None:
         super().__init__(config)
-        self.uri = self.config.get("uri")
-        if not self.uri:
+        uri = self.config.get("uri")
+        if not uri:
             raise AdapterConnectionError("sqlite adapter requires a 'uri' config key")
+        self.uri = uri
         self.con: sqlite3.Connection | None = None
 
     def connect(self) -> None:
@@ -65,25 +68,48 @@ class SqliteAdapter(DBAdapter):
         )
 
     def list_databases(self) -> list[str]:
-        # SQLite has a single database namespace.
-        return ["main"]
+        return [row[1] for row in self._cur().execute("PRAGMA database_list").fetchall()]
 
     def list_schemas(self, database: str | None = None) -> list[str]:
-        return ["main"]
+        namespace = database or "main"
+        return [namespace] if namespace in self.list_databases() else []
+
+    @staticmethod
+    def _namespace(database: str | None, schema: str | None) -> str:
+        if database and schema and database != schema:
+            raise AdapterQueryError("SQLite database and schema must name the same namespace")
+        return schema or database or "main"
 
     def list_tables(
         self, database: str | None = None, schema: str | None = None
     ) -> list[str]:
         cur = self._cur()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        return [r[0] for r in cur.fetchall()]
+        namespace = quote_identifier(self._namespace(database, schema))
+        try:
+            cur.execute(f"SELECT name FROM {namespace}.sqlite_master WHERE type='table'")
+            return [r[0] for r in cur.fetchall()]
+        except sqlite3.Error as e:
+            raise AdapterQueryError(str(e)) from e
 
-    def get_table_schema(self, fqn: str) -> TableSchema:
-        table = fqn.split(".")[-1]
+    def get_table_schema(self, fqn: str | TableRef) -> TableSchema:
+        if isinstance(fqn, TableRef):
+            table = fqn.name
+            namespace = self._namespace(fqn.database, fqn.schema)
+        else:
+            parts = fqn.split(".")
+            table = parts[-1]
+            namespace = parts[-2] if len(parts) >= 2 else "main"
         cur = self._cur()
-        cur.execute(f"PRAGMA table_info('{table}')")
+        identifier = f"{quote_identifier(namespace)}.{quote_identifier(table)}"
+        try:
+            cur.execute(f"PRAGMA {quote_identifier(namespace)}.table_info({quote_identifier(table)})")
+            column_rows = cur.fetchall()
+            cur.execute(f"PRAGMA {quote_identifier(namespace)}.foreign_key_list({quote_identifier(table)})")
+            foreign_rows = cur.fetchall()
+        except sqlite3.Error as e:
+            raise AdapterQueryError(str(e)) from e
         columns, pks = [], []
-        for _cid, name, ctype, notnull, dflt, pk in cur.fetchall():
+        for _cid, name, ctype, notnull, dflt, pk in column_rows:
             columns.append(
                 ColumnDef(
                     name=name, data_type=ctype or "",
@@ -93,8 +119,7 @@ class SqliteAdapter(DBAdapter):
             if pk:
                 pks.append(name)
         fks: list[ForeignKey] = []
-        cur.execute(f"PRAGMA foreign_key_list('{table}')")
-        for row in cur.fetchall():
+        for row in foreign_rows:
             # row: id, seq, table, from, to, on_update, on_delete, match
             fks.append(
                 ForeignKey(
@@ -102,8 +127,9 @@ class SqliteAdapter(DBAdapter):
                 )
             )
         return TableSchema(
-            name=table, schema="main", database="main",
+            name=table, schema=namespace, database=namespace,
             columns=columns, primary_keys=pks, foreign_keys=fks,
+            sql_identifier=identifier if columns else None,
         )
 
     def dialect_name(self) -> str:

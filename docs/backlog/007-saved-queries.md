@@ -15,4 +15,4 @@ Provide create/open/delete actions for saved .sql files under the client's data 
 
 ## Notes and references
 
-Recheck the client repository's TODO.md before proposing a change. This can remain client-owned.
+The current owner is [client backlog 001](https://github.com/realEbi/dbridge.nvim/blob/dbridge-2.0/docs/backlog/001-saved-queries.md); its documentation migration retired TODO.md. This work remains deferred and client-owned.

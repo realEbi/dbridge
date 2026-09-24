@@ -22,6 +22,7 @@ With Make installed, these shortcuts are available from the repository root:
 ```console
 make help
 make manual-prepare                         # rebuild persistent sample databases
+make check                                  # type and lint checks
 make test                                   # automated suite
 make test-cov                               # suite with the 85% coverage gate
 make test PYTEST_ARGS="tests/adapters -q"    # focused run
@@ -38,6 +39,12 @@ uv run --group test pytest
 uv run --group types mypy src/dbridge tests
 uv run ruff check src/dbridge tests
 ```
+
+`make check` runs mypy and Ruff over `src/dbridge` and `tests`. Mypy excludes
+`src/dbridge/adapters/_parked/` from recursive discovery while those adapters are
+unregistered legacy ports; no missing-driver ignores apply to shipped modules.
+Moving a supported port out of that directory includes it automatically. Ruff
+still checks parked source without importing its optional drivers.
 
 Use focused tests while changing behavior and run the server suite for runtime
 changes.
@@ -152,8 +159,8 @@ add an ADR and mark any superseded ADR accordingly. Preserve historical rational
 
 ## CI and release
 
-The [test workflow](../.github/workflows/test.yml) runs the server suite with
-coverage on **every** pull request, whatever branch it targets, and on pushes to
+The [test workflow](../.github/workflows/test.yml) runs mypy, Ruff, and the server
+suite with coverage on **every** pull request, whatever branch it targets, and on pushes to
 `main` and `dbridge-2.0`, across a Python 3.11 and 3.12 matrix. It fails when
 coverage falls below the 85% floor, so the threshold is enforced without anyone
 choosing to run it. The matrix sets `fail-fast: false` so both versions always
