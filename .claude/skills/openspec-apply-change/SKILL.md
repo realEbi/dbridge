@@ -16,6 +16,44 @@ Implement tasks from an OpenSpec change.
 
 **Input**: Optionally specify a change name (e.g., `/opsx:apply add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
+**Repository preflight (before implementation or delegation)**
+
+Read-only discovery may identify the change and affected repositories first. On
+invocation or resumption, complete this preflight for the planning home and each
+repository to be edited. Authorized setup such as fetching, worktree creation,
+and scoped plan transfer is part of preflight; other writes wait until it passes.
+
+1. Read the current on-disk `AGENTS.md` instructions that apply to the intended
+   files, including applicable parent/nested instructions and `AGENTS.override.md`
+   where supported. Read the workflow documents they require. Do not rely only
+   on an earlier conversation, summary, or automatically injected copy.
+2. For Git checkouts, inspect the path, branch, HEAD, upstream, worktrees, and staged,
+   unstaged, and untracked state. When a remote PR target or upstream is known,
+   fetch it and inspect its instruction files for policy changes missing locally
+   (for example, `git show <target>:AGENTS.md`). Read changed workflow references
+   too. A fetch does not update checked-out instructions. Resolve policy
+   differences before editing, respecting explicit user constraints; do not pull,
+   switch, reset, or stash the original checkout just to obtain newer guidance.
+3. Fulfill the repository's apply prerequisites. If its instructions require a
+   separate worktree, create or verify that worktree before code, documentation,
+   dependency setup, or task-checkbox writes. Preserve the original checkout and
+   transfer only the selected plan and required related edits as instructed.
+   Re-read instructions in the resulting worktree, then run `openspec status`
+   and `openspec instructions apply` there to resolve current context paths and
+   edit constraints. Keep any explicitly selected standalone store selected.
+4. State the active repository/worktree and branch, the instruction files read,
+   and the applicable verification and delivery requirements. Give delegated
+   agents explicit owning worktree paths and instruction scope; do not let them
+   inherit the original checkout as their edit location. Before extending scope
+   to another directory/repository, or resuming after checkout/policy changes,
+   read the newly applicable instructions and repeat the relevant checks.
+
+Follow repository instructions throughout implementation and completion, not just
+when selecting a directory. Explicit user and higher-priority instructions take
+precedence. If a required prerequisite cannot be satisfied or a material conflict
+remains unresolved, report it before dependent writes. This preflight does not
+bypass OpenSpec blocked states or authorize additional scope or publication.
+
 **Steps**
 
 1. **Select the change**
@@ -52,7 +90,7 @@ Implement tasks from an OpenSpec change.
 
    **Handle states:**
    - If `state: "blocked"` (missing artifacts): show message, suggest using `/opsx:continue` (if it is not installed, run `openspec status --change "<name>" --json` to see the next artifact and `openspec instructions <artifact-id> --change "<name>" --json` for how to create it)
-   - If `state: "all_done"`: congratulate, suggest archive
+   - If `state: "all_done"`: verify and perform any required, already-authorized repository completion steps; otherwise suggest archive
    - Otherwise: proceed to implementation
 
    Treat `context` as a required prompt-level input. Read and consider it, and
@@ -109,7 +147,7 @@ Implement tasks from an OpenSpec change.
    Display:
    - Tasks completed this session
    - Overall progress: "N/M tasks complete"
-   - If all done: suggest archive
+   - If all done: finish required, already-authorized repository verification, documentation, spec synchronization, archive, and delivery steps; suggest archive only when no governing instruction requires completing it now
    - If paused: explain why and wait for guidance
 
 **Output During Implementation**
@@ -140,7 +178,8 @@ Working on task 4/7: <task description>
 - [x] Task 2
 ...
 
-All tasks complete! You can archive this change with `/opsx:archive`.
+All tasks complete. Report the required completion/delivery steps performed and
+any remaining authorization boundary. If archive remains a next step, use `/opsx:archive`.
 ```
 
 **Output On Pause (Issue Encountered)**
@@ -164,6 +203,8 @@ What would you like to do?
 ```
 
 **Guardrails**
+- Complete repository preflight before implementation writes or delegation; generic steps never excuse skipping applicable AGENTS.md requirements
+- Use CLI-resolved context paths for the owning worktree or explicitly selected standalone store; re-resolve after moving instead of editing stale original copies
 - Keep going through tasks until done or blocked
 - Always read context files before starting (from the apply instructions output)
 - If task is ambiguous, pause and ask before implementing
