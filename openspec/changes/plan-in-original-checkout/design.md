@@ -8,56 +8,70 @@ checkout only when it is clean, including untracked files, and has no commits
 ahead of its upstream. A plan kept locally breaks one of those conditions: as
 untracked files or as unpushed commits.
 
+`dbridge-2.0` requires the `test (3.11)` and `test (3.12)` checks, enforced for
+administrators and with no required reviews, so a direct push is rejected. The
+repository allows merge commits, and earlier PRs were merged that way.
+
 ## Goals / Non-Goals
 
-**Goals:** planning sessions write in place and finish with a pushed plan; apply
-sessions start cold from the PR target with the plan already present; the
-post-merge refresh keeps working without manual rebases.
+**Goals:** planning sessions write in place and finish with the plan on the
+integration branch; apply sessions start cold from the PR target with the plan
+already present; the original checkout returns to clean and zero ahead without
+resets or copies.
 
-**Non-Goals:** no change to apply's worktree, verification, PR delivery, merge
-authorization, or refresh conditions; no edits to generated skills or commands; no
-change to client repositories' policy.
+**Non-Goals:** no change to apply's worktree, verification, implementation PR
+delivery, or refresh conditions; no change to branch protection; no edits to
+generated skills or commands; no change to client repositories' policy.
 
 ## Decisions
 
-- **Commit and push at finalization, not at the end of propose.** Drafts are often
-  revised within the planning session, so pushing each one would publish churn.
-  When planning artifacts are complete, the agent asks whether the plan is final;
-  the user's confirmation triggers the commit and push. A later `update` of a plan
-  not yet being applied follows the same rule. *Alternative:* push automatically
-  after propose. That is simpler, but it publishes unreviewed drafts.
-- **Plan-only commit on the current branch.** Stage only the change directory and
-  its directly related planning edits, never unrelated working-tree changes. Push
-  the current branch to its upstream. If the branch has other unpushed commits,
-  report them and ask before pushing, because the push would publish them too.
-  *Alternative:* always commit on `dbridge-2.0`. That would force switching the
-  original checkout, which the worktree policy forbids.
-- **Finalization is the authorization.** It covers only the plan-only commit and
-  the push. Merges, tags, releases, and implementation keep their existing
-  authorization rules.
-- **Keep transfer as a fallback.** A plan finalized on a branch other than the PR
-  target is still absent from the apply worktree's base. The existing transfer
-  rules stay, narrowed to that case.
+- **Finalization, not the end of propose, triggers delivery.** Drafts are often
+  revised within the planning session. When the artifacts are complete, the agent
+  asks whether the plan is final; the user's confirmation starts delivery. A later
+  `update` of a plan not yet being applied follows the same rule.
+- **Commit locally, push the same commit as a plan branch, merge with a merge
+  commit.** Stage only plan-only paths in the original checkout and commit them on
+  its current branch. Run `git push origin HEAD:refs/heads/plan/<change>`, then
+  `gh pr create --base <target> --head plan/<change>`. Wait for the required
+  checks and merge with `gh pr merge --merge`. The local commit is then an
+  ancestor of the target, so `git pull --ff-only` returns the original checkout
+  to clean and zero ahead. Finally delete the remote plan branch.
+  *Alternatives:* A squash or rebase merge rewrites the hashes and leaves the
+  checkout ahead. Preparing the PR in a short-lived worktree requires copying the
+  files and then deleting the local copies. A direct push is rejected by branch
+  protection.
+- **Preconditions, otherwise ask.** Delivery requires the original checkout to be
+  on the PR target branch, with no unpushed commits other than this plan's, and no
+  staged changes outside the plan-only paths. Unrelated unstaged or untracked
+  files may remain; they are never staged, and `--ff-only` refuses to overwrite
+  them. If a precondition fails, the agent reports it and asks. A plan finalized
+  on another branch uses the apply transfer fallback instead.
+- **Narrow merge authorization.** Finalization authorizes merging only a PR whose
+  diff is exactly the plan-only paths, after the required checks pass, when GitHub
+  reports it mergeable. Failing checks, conflicts, or any other diff stop delivery
+  and are reported. Implementation PRs, tags, and releases keep their separate
+  authorization.
 - **No entry-point edits.** The apply preflight already reads AGENTS.md and the
-  development guide, and propose/explore read AGENTS.md as project instructions.
-  Policy stays in its owning documents, which avoids regeneration drift in the
-  three customized apply entry points.
+  development guide, and propose and explore read AGENTS.md as project
+  instructions. Policy stays in its owning documents, which avoids regeneration
+  drift in the three customized apply entry points.
 
 ## Risks / Trade-offs
 
-- [Plans reach `dbridge-2.0` without a PR] → They contain only planning artifacts,
-  and CI still runs on the push. Implementation always goes through a PR.
+- [Unreviewed plan merges] → Only planning artifacts are merged, CI must pass,
+  and the diff is checked against the plan-only paths before merging.
+  Implementation always needs its own PR and merge decision.
+- [Waiting for CI extends the planning session] → The checks are short. If they
+  fail, the plan stays in its open PR and the failure is reported.
 - [A finalized plan is later abandoned] → It remains an active change until it is
-  archived, deleted, or its backlog item is returned to deferred, as today.
-- [The push publishes other unpushed commits] → The agent reports them and asks
-  first.
-- [Prompt guidance, not enforcement] → The agent may still misroute writes. The
-  change is verified with a walkthrough of representative cases rather than any
-  filesystem barrier.
+  archived or deleted, or its backlog item is returned to deferred, as today.
+- [Prompt guidance, not enforcement] → Verified with a walkthrough of
+  representative cases, not with a filesystem barrier.
 
 ## Migration Plan
 
-Apply this change through the current worktree/PR flow. After it merges, the new
-rule governs the next planning session. The already-planned `bound-result-fetch`
-is unaffected: its plan commits are on local `dbridge-2.0` and are published when
-this plan is finalized and pushed.
+Apply this change through the current worktree and PR flow. The already-final
+plans for `bound-result-fetch` and this change are published by one transitional
+plan PR from the current local `dbridge-2.0`, because they were committed before
+this rule existed. That PR also carries a local merge commit whose content is
+already on the target. Later plans use one plan PR each.
