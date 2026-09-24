@@ -1,6 +1,6 @@
 import pytest
 
-from dbridge.adapters.base import ContainerEntry, ScopeLevel, TableRef
+from dbridge.adapters.base import ContainerEntry, ForeignKey, PrimaryKey, ScopeLevel, TableRef
 from dbridge.adapters.identifiers import quote_identifier
 from dbridge.adapters.sqlite import SqliteAdapter
 from dbridge.exceptions import AdapterConnectionError, AdapterQueryError
@@ -33,14 +33,145 @@ async def test_execute_returns_rows(adapter):
 async def test_get_table_schema(adapter):
     schema = (await adapter.get_table_schema(TableRef("users", ("main",))))
     assert [c.name for c in schema.columns] == ["id", "name"]
-    assert schema.primary_keys == ["id"]
+    assert schema.primary_key == PrimaryKey(name=None, columns=["id"])
     name_col = next(c for c in schema.columns if c.name == "name")
     assert name_col.nullable is False
 
 
 async def test_foreign_keys(adapter):
     schema = (await adapter.get_table_schema(TableRef("orders", ("main",))))
-    assert schema.foreign_keys[0].referenced_table == "users"
+    assert schema.foreign_keys == [ForeignKey(
+        name=None, columns=["user_id"], referenced_path=("main",),
+        referenced_table="users", referenced_columns=["id"],
+    )]
+
+
+async def test_composite_primary_key_uses_key_order(adapter):
+    await adapter.execute("CREATE TABLE parent (a INTEGER, b INTEGER, PRIMARY KEY (b, a))")
+
+    schema = await adapter.get_table_schema(TableRef("parent", ("main",)))
+
+    assert [column.name for column in schema.columns] == ["a", "b"]
+    assert schema.primary_key == PrimaryKey(name=None, columns=["b", "a"])
+    assert schema.foreign_keys == []
+
+
+@pytest.mark.parametrize("referenced_columns", ["(b, a)", ""])
+async def test_composite_foreign_key_preserves_column_pairs(adapter, referenced_columns):
+    await adapter.execute("CREATE TABLE parent (a INTEGER, b INTEGER, PRIMARY KEY (b, a))")
+    await adapter.execute(
+        "CREATE TABLE child (y INTEGER, x INTEGER, "
+        f"FOREIGN KEY (x, y) REFERENCES parent {referenced_columns})"
+    )
+
+    schema = await adapter.get_table_schema(TableRef("child", ("main",)))
+
+    assert schema.primary_key is None
+    assert schema.foreign_keys == [ForeignKey(
+        name=None, columns=["x", "y"], referenced_path=("main",),
+        referenced_table="parent", referenced_columns=["b", "a"],
+    )]
+
+
+async def test_two_composite_foreign_keys_stay_separate_in_id_order(adapter):
+    await adapter.execute("CREATE TABLE parent (a INTEGER, b INTEGER, PRIMARY KEY (b, a))")
+    await adapter.execute(
+        "CREATE TABLE child (x INTEGER, y INTEGER, z INTEGER, w INTEGER, "
+        "FOREIGN KEY (x, y) REFERENCES parent (b, a), "
+        "FOREIGN KEY (w, z) REFERENCES parent (a, b))"
+    )
+    # SQLite assigns ids independently of declaration order.
+    rows = (await adapter.execute("PRAGMA foreign_key_list(child)")).rows
+    ids_by_first_column = {row[3]: row[0] for row in rows if row[1] == 0}
+    expected_by_first_column = {
+        "x": ForeignKey(None, ["x", "y"], ("main",), "parent", ["b", "a"]),
+        "w": ForeignKey(None, ["w", "z"], ("main",), "parent", ["a", "b"]),
+    }
+    expected = [
+        expected_by_first_column[column]
+        for column in sorted(ids_by_first_column, key=ids_by_first_column.get)
+    ]
+
+    for _ in range(2):
+        schema = await adapter.get_table_schema(TableRef("child", ("main",)))
+        assert schema.foreign_keys == expected
+
+
+async def test_column_shorthand_resolves_parent_primary_key(adapter):
+    await adapter.execute("CREATE TABLE child (z INTEGER REFERENCES users)")
+
+    schema = await adapter.get_table_schema(TableRef("child", ("main",)))
+
+    assert schema.foreign_keys == [ForeignKey(
+        name=None, columns=["z"], referenced_path=("main",),
+        referenced_table="users", referenced_columns=["id"],
+    )]
+
+
+@pytest.mark.parametrize("parent_exists", [False, True])
+async def test_shorthand_without_parent_primary_key_has_empty_target_columns(adapter, parent_exists):
+    if parent_exists:
+        await adapter.execute("CREATE TABLE parent (id INTEGER UNIQUE)")
+    await adapter.execute("CREATE TABLE child (z INTEGER REFERENCES parent)")
+
+    schema = await adapter.get_table_schema(TableRef("child", ("main",)))
+
+    assert schema.foreign_keys == [ForeignKey(
+        name=None, columns=["z"], referenced_path=("main",),
+        referenced_table="parent", referenced_columns=[],
+    )]
+
+
+async def test_attached_keys_and_shorthand_preserve_literal_identifiers(adapter):
+    namespace = 'side.catalog "quoted"'
+    parent = 'parent.table "quoted"'
+    child = 'child.table "quoted"'
+    columns = ['column.b "quoted"', "column.a"]
+    quoted_namespace = quote_identifier(namespace)
+    quoted_parent = quote_identifier(parent)
+    quoted_child = quote_identifier(child)
+    first, second = map(quote_identifier, columns)
+    await adapter.execute(f"ATTACH DATABASE ':memory:' AS {quoted_namespace}")
+    # The main namespace has a same-named parent with a different primary key.
+    await adapter.execute(f"CREATE TABLE {quoted_parent} (wrong INTEGER PRIMARY KEY)")
+    await adapter.execute(
+        f"CREATE TABLE {quoted_namespace}.{quoted_parent} "
+        f"({second} INTEGER, {first} INTEGER, PRIMARY KEY ({first}, {second}))"
+    )
+    await adapter.execute(
+        f"CREATE TABLE {quoted_namespace}.{quoted_child} "
+        f"(x INTEGER, y INTEGER, FOREIGN KEY (x, y) REFERENCES {quoted_parent})"
+    )
+
+    schema = await adapter.get_table_schema(TableRef(child, (namespace,)))
+
+    assert schema.foreign_keys == [ForeignKey(
+        name=None, columns=["x", "y"], referenced_path=(namespace,),
+        referenced_table=parent, referenced_columns=columns,
+    )]
+    foreign_key = schema.foreign_keys[0]
+    parent_schema = await adapter.get_table_schema(
+        TableRef(foreign_key.referenced_table, foreign_key.referenced_path)
+    )
+    assert parent_schema.primary_key == PrimaryKey(name=None, columns=columns)
+
+
+async def test_unique_check_and_not_null_constraints_are_not_keys(adapter):
+    await adapter.execute(
+        "CREATE TABLE other_constraints (a INTEGER NOT NULL, b INTEGER CHECK (b > 0), UNIQUE (a, b))"
+    )
+
+    schema = await adapter.get_table_schema(TableRef("other_constraints", ("main",)))
+
+    assert schema.primary_key is None
+    assert schema.foreign_keys == []
+
+
+async def test_unknown_table_has_no_keys(adapter):
+    schema = await adapter.get_table_schema(TableRef("missing", ("main",)))
+
+    assert schema.primary_key is None
+    assert schema.foreign_keys == []
 
 
 async def test_writes_persist_across_reconnect(tmp_path):

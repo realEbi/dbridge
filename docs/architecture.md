@@ -192,8 +192,18 @@ quotes the path components in order followed by the table name, doubling embedde
 double quotes. Literal dots remain part of a component. Unresolved tables return
 no columns and a null identifier. Metadata failures remain errors.
 
-SQLite reports column metadata, primary keys, and foreign keys. DuckDB reports
-columns but currently returns empty primary/foreign key lists. `getERD` requires a
+SQLite and DuckDB report column metadata and ordered primary/foreign-key
+constraints through the [table-keys contract](../openspec/specs/table-keys/spec.md).
+`primary_key` is one named-or-unnamed constraint or null; each `foreign_keys`
+entry preserves paired columns and the referenced table's full Scope Path.
+SQLite reports null constraint names, groups foreign-key pragma rows by constraint,
+and resolves shorthand references against the parent's primary key. DuckDB reads
+engine-reported names and ordered columns from `duckdb_constraints()` on its
+metadata Lane. Temporary DuckDB keys come from the query connection's existing
+metadata snapshot, alongside temporary columns. Both engines currently reference
+tables in the child's namespace; DuckDB 1.1.3 does not support cross-schema or
+cross-catalog foreign keys. Unique, check, and not-null constraints are not exposed.
+`getERD` requires a
 full Scope Path and returns `{"status": "not_implemented", "tables": [...]}`
 with that path's table entries.
 

@@ -102,7 +102,7 @@ body bytes). Replies may arrive out of request order; clients correlate them by
 | `dbridge/listDatabases` | `session_id` | First-level containers → `[{name, internal}]`; rejects `path` |
 | `dbridge/listSchemas` | `session_id`, `path` | Child containers under a one-component path → `[{name, internal}]`; SQLite returns `[]` |
 | `dbridge/listTables` | `session_id`, `path` | Tables in a full path → `[{name, sql_identifier}]` |
-| `dbridge/getTableSchema` | `session_id`, `path`, `name` | `{name, scope, columns, primary_keys, foreign_keys, sql_identifier}` |
+| `dbridge/getTableSchema` | `session_id`, `path`, `name` | `{name, scope, columns, primary_key, foreign_keys, sql_identifier}` |
 | `dbridge/complete` | `session_id`, `path`, `sql`, `position?` | SQL completion items; `position` is the cursor's UTF-8 byte offset into `sql` (default: end) |
 | `dbridge/getERD` | `session_id`, `path` | Placeholder → `{status: "not_implemented", tables: [{name, sql_identifier}]}` |
 | `dbridge/refreshSchema` | `session_id` | Clear all metadata caches → `{ok, levels, default_path}` |
@@ -144,6 +144,31 @@ The response reports `scope: ["main"]`; neither path components nor the name
 are split on dots. The legacy `fqn`, `table`, `database`, and `schema` inputs are
 rejected on scoped metadata requests. This is a breaking DSP change requiring
 clients to migrate together with the server.
+
+Key metadata describes whole constraints. For a SQLite `orders` table with an
+`id` primary key and a `customer_id` reference to `customers(id)`, the key fields
+are:
+
+```json
+{
+  "primary_key": {"name": null, "columns": ["id"]},
+  "foreign_keys": [{
+    "name": null,
+    "columns": ["customer_id"],
+    "referenced_path": ["main"],
+    "referenced_table": "customers",
+    "referenced_columns": ["id"]
+  }]
+}
+```
+
+Both Adapters preserve constraint column order and positional foreign-key pairs.
+DuckDB supplies engine-reported names; SQLite reports null names. A table without
+a primary key reports `primary_key: null`, and one without foreign keys reports
+`foreign_keys: []`. SQLite shorthand references resolve the parent's primary key;
+a missing parent or one without a primary key yields `referenced_columns: []`.
+This constraint shape is a breaking DSP change; key consumers must migrate with
+the server. See the [table-keys contract](openspec/specs/table-keys/spec.md).
 
 Both `listTables` entries and resolved `getTableSchema` results include an
 executable `sql_identifier`. It quotes every path component followed by the table

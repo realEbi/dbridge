@@ -77,6 +77,25 @@ async def test_get_table_schema_returns_columns(engine_session):
     assert [c["name"] for c in schema["columns"]] == ["id", "name"]
 
 
+async def test_get_table_schema_serializes_key_constraints(engine_session):
+    engine, session_id = engine_session
+    await engine.execute(session_id, "CREATE TABLE parent (a INTEGER, b INTEGER, PRIMARY KEY (b, a))")
+    await engine.execute(session_id, (
+        "CREATE TABLE child (x INTEGER, y INTEGER, PRIMARY KEY (y, x), "
+        "FOREIGN KEY (y, x) REFERENCES parent (b, a))"
+    ))
+
+    schema = await engine.get_table_schema(session_id, ("main",), "child")
+
+    assert schema["scope"] == ["main"]
+    assert schema["primary_key"] == {"name": None, "columns": ["y", "x"]}
+    assert schema["foreign_keys"] == [{
+        "name": None, "columns": ["y", "x"], "referenced_path": ["main"],
+        "referenced_table": "parent", "referenced_columns": ["b", "a"],
+    }]
+    assert "primary_keys" not in schema
+
+
 async def test_get_erd_reports_not_implemented_with_tables(engine_session):
     engine, session_id = engine_session
     await engine.execute(session_id, "CREATE TABLE t (id INTEGER)")

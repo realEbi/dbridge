@@ -95,6 +95,8 @@ class Engine:
             await self._registries[session_id].get_table_schema(TableRef(name, path))
         )
         result["scope"] = list(result["scope"])
+        for foreign_key in result["foreign_keys"]:
+            foreign_key["referenced_path"] = list(foreign_key["referenced_path"])
         return result
 
     async def get_erd(self, session_id: str, path: ScopePath) -> dict:

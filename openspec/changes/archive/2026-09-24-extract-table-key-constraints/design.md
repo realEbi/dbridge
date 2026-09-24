@@ -6,7 +6,7 @@ See proposal.md for motivation and specs/table-keys/spec.md for the contract.
 `foreign_keys: list[ForeignKey]`, where `ForeignKey` is one column pair. The Engine
 serializes the dataclass with `asdict`. SQLite builds keys from `PRAGMA table_info`
 and `PRAGMA foreign_key_list`; DuckDB returns empty lists. Under
-[ADR-0003](../../../docs/adr/0003-async-orchestration.md), DuckDB reads catalog
+[ADR-0003](../../../../docs/adr/0003-async-orchestration.md), DuckDB reads catalog
 metadata on its metadata Lane cursor and answers temporary tables from a snapshot
 taken on the query connection after each statement.
 
