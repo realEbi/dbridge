@@ -102,12 +102,25 @@ scope. Clients send a Scope Path with every scoped metadata request, so one
 request's selection cannot change another request's lookup.
 [ADR-0002](adr/0002-explicit-scope-paths.md) records this decision.
 
-Profiles are persisted data. Loading, saving, or deleting a Profile does not
-create or close a Session. Clients manage Profiles through the Profile RPCs.
+Profiles are persisted data. Loading, saving, renaming, or deleting a Profile
+does not create, change, or close a Session: each live Session keeps the Adapter
+and configuration it connected with. Clients manage Profiles through the Profile RPCs.
 The server owns `connections.toml`, under `$XDG_CONFIG_HOME/dbridge` (default
 `~/.config/dbridge`) on Unix-like systems or `%APPDATA%\dbridge` on Windows.
 Settings are read from environment variables; there is no settings.toml loader.
 See the [README](../README.md#profiles) for the file shape and settings.
+
+`saveProfile` accepts an optional `previous_name`. When it differs from `name`,
+storage checks that the source exists and the destination is unused, then replaces
+the source entry with the new name and definition in its original position. The
+rename is one read-modify-write and one file write; rejected missing-source and
+name-collision requests leave the file unchanged. Omitting `previous_name`, or
+using the same name, retains the existing upsert behavior. These synchronous
+operations run on the event loop without yielding, so Profile requests from this
+server cannot interleave the read and write. They do not coordinate with other
+processes. Saves and deletes still rewrite the file in place rather than replacing
+it through a temporary file; crash-safe persistence remains
+[backlog 059](backlog/059-crash-safe-profile-writes.md).
 
 ## Queries and adapters
 

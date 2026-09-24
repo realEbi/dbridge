@@ -241,6 +241,24 @@ async def test_connect_by_profile_name(engine, isolated_profiles):
 
 
 @pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
+@pytest.mark.parametrize("name,previous_name", [("new", "old"), ("old", None)])
+async def test_profile_edit_preserves_live_session(
+    engine, isolated_profiles, tmp_path, adapter, name, previous_name,
+):
+    engine.save_profile("old", adapter, {"uri": ":memory:"})
+    session_id = (await engine.connect(profile="old"))["session_id"]
+    await engine.execute(session_id, "CREATE TABLE marker AS SELECT 42 AS value")
+    new_config = {"uri": str(tmp_path / "next.db")}
+
+    assert engine.save_profile(name, adapter, new_config, previous_name) == {"ok": True}
+
+    assert engine.list_profiles() == {name: {"adapter": adapter, "config": new_config}}
+    assert engine.sessions.ids() == (session_id,)
+    assert (await engine.execute(session_id, "SELECT value FROM marker"))["rows"] == [[42]]
+    assert not (tmp_path / "next.db").exists()
+
+
+@pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
 @pytest.mark.parametrize("marked_sql, table, columns", [
     ("SELECT id, | FROM products", "products", ["id", "name", "category"]),
     ("SELECT id, ca|tegory FROM products", "products", ["category"]),

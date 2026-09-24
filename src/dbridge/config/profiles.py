@@ -23,6 +23,10 @@ class ProfileNotFoundError(Exception):
     """Raised when a named profile is not present in connections.toml."""
 
 
+class ProfileExistsError(Exception):
+    """Raised when renaming a profile would overwrite another profile."""
+
+
 def _config_dir() -> Path:
     if sys.platform == "win32":
         base = os.environ.get("APPDATA", Path.home())
@@ -62,13 +66,31 @@ def load_profiles(path: Path | None = None) -> dict[str, dict]:
     return profiles
 
 
-def save_profile(name: str, adapter: str, config: dict, path: Path | None = None) -> None:
-    """Upsert a profile entry in connections.toml."""
+def save_profile(
+    name: str,
+    adapter: str,
+    config: dict,
+    path: Path | None = None,
+    previous_name: str | None = None,
+) -> None:
+    """Upsert a profile, or replace a differently named profile in one write."""
     if path is None:
         path = _profiles_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     data = _read_raw(path)
-    data.setdefault("connections", {})[name] = {"adapter": adapter, "config": config}
+    connections = data.setdefault("connections", {})
+    entry = {"adapter": adapter, "config": config}
+    if previous_name is not None and previous_name != name:
+        if previous_name not in connections:
+            raise ProfileNotFoundError(previous_name)
+        if name in connections:
+            raise ProfileExistsError(name)
+        data["connections"] = {
+            name if key == previous_name else key: entry if key == previous_name else value
+            for key, value in connections.items()
+        }
+    else:
+        connections[name] = entry
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(tomli_w.dumps(data).encode())
 
 

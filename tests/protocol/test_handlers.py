@@ -89,6 +89,70 @@ async def test_delete_unknown_profile_reports_not_ok(make_dispatcher, isolated_p
     assert (await _rpc(d, 1, "dbridge/deleteProfile", {"name": "ghost"}))["result"]["ok"] is False
 
 
+async def test_rename_profile_replaces_definition(make_dispatcher, isolated_profiles):
+    d = make_dispatcher()
+    await _rpc(d, 1, "dbridge/saveProfile", {
+        "name": "old", "adapter": "sqlite", "config": {"uri": ":memory:"},
+    })
+    response = await _rpc(d, 2, "dbridge/saveProfile", {
+        "name": "new", "previous_name": "old", "adapter": "duckdb",
+    })
+    assert response["result"] == {"ok": True}
+    assert (await _rpc(d, 3, "dbridge/listProfiles", {}))["result"] == {
+        "new": {"adapter": "duckdb", "config": {}},
+    }
+
+
+@pytest.mark.parametrize("extra", [{}, {"previous_name": "mem"}])
+async def test_save_profile_still_upserts(make_dispatcher, isolated_profiles, extra):
+    d = make_dispatcher()
+    for request_id, config in enumerate([{"uri": ":memory:"}, {}], start=1):
+        response = await _rpc(d, request_id, "dbridge/saveProfile", {
+            "name": "mem", "adapter": "sqlite", "config": config, **extra,
+        })
+        assert response["result"] == {"ok": True}
+        assert (await _rpc(d, 3, "dbridge/listProfiles", {}))["result"] == {
+            "mem": {"adapter": "sqlite", "config": config},
+        }
+
+
+@pytest.mark.parametrize("previous_name,name,code,message", [
+    ("old", "taken", errors.PROFILE_ALREADY_EXISTS, "taken"),
+    ("ghost", "new", errors.PROFILE_NOT_FOUND, "ghost"),
+    ("ghost", "taken", errors.PROFILE_NOT_FOUND, "ghost"),
+])
+async def test_rejected_profile_rename_preserves_file(
+    make_dispatcher, isolated_profiles, previous_name, name, code, message,
+):
+    d = make_dispatcher()
+    for request_id, profile in enumerate(["old", "taken"], start=1):
+        await _rpc(d, request_id, "dbridge/saveProfile", {
+            "name": profile, "adapter": "sqlite", "config": {"uri": profile + ".db"},
+        })
+    before = isolated_profiles.read_bytes()
+    response = await _rpc(d, 3, "dbridge/saveProfile", {
+        "name": name, "previous_name": previous_name, "adapter": "duckdb",
+    })
+    assert response["error"]["code"] == code
+    assert message in response["error"]["message"]
+    assert isolated_profiles.read_bytes() == before
+
+
+@pytest.mark.parametrize("previous_name", [None, "", 0, False, [], {}])
+async def test_previous_name_requires_nonempty_string(
+    make_dispatcher, isolated_profiles, previous_name,
+):
+    d = make_dispatcher()
+    await _rpc(d, 1, "dbridge/saveProfile", {"name": "old", "adapter": "sqlite"})
+    before = isolated_profiles.read_bytes()
+    response = await _rpc(d, 2, "dbridge/saveProfile", {
+        "name": "old", "previous_name": previous_name, "adapter": "duckdb",
+    })
+    assert response["error"]["code"] == errors.INVALID_REQUEST
+    assert "previous_name" in response["error"]["message"]
+    assert isolated_profiles.read_bytes() == before
+
+
 async def test_save_profile_requires_name_and_adapter(make_dispatcher, isolated_profiles):
     d = make_dispatcher()
     resp = (await _rpc(d, 1, "dbridge/saveProfile", {"adapter": "sqlite"}))

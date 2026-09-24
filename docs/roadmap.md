@@ -31,7 +31,9 @@ this direction. Clients continue to live in their own repositories.
 Make the existing server/client path predictable: target the right Session and
 table, preserve Profiles, refresh metadata, and execute the intended statement.
 
-Remaining core work includes [Profile renames](backlog/001-profile-rename.md) and
+[Profile renames](backlog/001-profile-rename.md) now replace the old definition in
+one save request, reject collisions without changing stored Profiles, and preserve
+live Sessions through the Neovim edit flow. Remaining core work includes
 [DuckDB constraints](backlog/005-duckdb-constraints.md). The backlog also carries
 completion and client presentation defects.
 
@@ -61,7 +63,7 @@ of completed identifiers in both engines.
 Type and lint checks are clean and run in the existing CI matrix (`make check`
 locally). Logger reuse preserves one diagnostic handler; see the verified
 [quality-check maintenance change](../openspec/changes/archive/2026-09-23-restore-server-quality-checks/).
-Profile rename and DuckDB constraints remain open; this milestone is not complete.
+DuckDB constraints remain open; this milestone is not complete.
 
 ## 2. Responsive queries and larger results
 

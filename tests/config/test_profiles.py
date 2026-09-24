@@ -1,12 +1,15 @@
 """Unit tests for config/profiles.py and the getERD / refreshSchema handlers."""
 import sys
 import textwrap
+import tomllib
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from dbridge.config import profiles
 from dbridge.config.profiles import (
+    ProfileExistsError,
     ProfileNotFoundError,
     delete_profile,
     get_profile,
@@ -138,6 +141,95 @@ def test_save_profile_upserts_without_clobbering_siblings(tmp_path):
     assert set(profiles) == {"a", "b"}
     assert profiles["a"] == {"adapter": "duckdb", "config": {"uri": "/a2.db"}}
     assert profiles["b"]["adapter"] == "duckdb"
+
+
+@pytest.mark.parametrize("config", [{"uri": "/old.db"}, {"uri": "/new.db"}])
+def test_rename_profile_preserves_order_and_other_data_in_one_write(tmp_path, config):
+    toml = tmp_path / "connections.toml"
+    toml.write_text(textwrap.dedent("""\
+        title = "user settings"
+        [connections.before]
+        adapter = "sqlite"
+        note = "preserve extra fields"
+        [connections.old]
+        adapter = "sqlite"
+        [connections.old.config]
+        uri = "/old.db"
+        [connections.after]
+        adapter = "duckdb"
+        [connections.after.config]
+        uri = ":memory:"
+        [settings]
+        enabled = true
+    """))
+    before = tomllib.loads(toml.read_text())
+
+    with patch.object(Path, "write_bytes", autospec=True, side_effect=Path.write_bytes) as write:
+        save_profile("new", "sqlite", config, toml, previous_name="old")
+        write.assert_called_once()
+        assert write.call_args.args[0] == toml
+
+    after = tomllib.loads(toml.read_text())
+    assert list(load_profiles(toml)) == ["before", "new", "after"]
+    assert after["connections"]["new"] == {"adapter": "sqlite", "config": config}
+    assert after["connections"]["before"] == before["connections"]["before"]
+    assert after["connections"]["after"] == before["connections"]["after"]
+    assert after["title"] == before["title"]
+    assert after["settings"] == before["settings"]
+
+
+@pytest.mark.parametrize(
+    ("previous_name", "name", "error", "error_name"),
+    [
+        ("old", "taken", ProfileExistsError, "taken"),
+        ("ghost", "new", ProfileNotFoundError, "ghost"),
+        ("ghost", "taken", ProfileNotFoundError, "ghost"),
+    ],
+)
+def test_failed_rename_keeps_file_byte_identical(
+    tmp_path, previous_name, name, error, error_name
+):
+    toml = tmp_path / "connections.toml"
+    toml.write_text(textwrap.dedent("""\
+        # Preserve even formatting when a rename fails.
+        [connections.old]
+        adapter = "sqlite"
+        [connections.taken]
+        adapter = "duckdb"
+    """))
+    before = toml.read_bytes()
+
+    with patch.object(Path, "write_bytes", autospec=True) as write:
+        with pytest.raises(error) as exc:
+            save_profile(name, "sqlite", {"uri": "/new.db"}, toml, previous_name)
+        assert str(exc.value) == error_name
+        write.assert_not_called()
+
+    assert toml.read_bytes() == before
+
+
+def test_rename_from_absent_file_does_not_create_file_or_directory(tmp_path):
+    toml = tmp_path / "nested" / "connections.toml"
+
+    with pytest.raises(ProfileNotFoundError, match="old"):
+        save_profile("new", "sqlite", {}, toml, previous_name="old")
+
+    assert not toml.parent.exists()
+
+
+@pytest.mark.parametrize("already_exists", [False, True])
+def test_previous_name_equal_to_name_keeps_upsert_behavior(tmp_path, already_exists):
+    toml = tmp_path / "connections.toml"
+    save_profile("other", "sqlite", {}, toml)
+    if already_exists:
+        save_profile("same", "sqlite", {"uri": "/old.db"}, toml)
+
+    save_profile("same", "duckdb", {"uri": "/new.db"}, toml, previous_name="same")
+
+    assert load_profiles(toml) == {
+        "other": {"adapter": "sqlite", "config": {}},
+        "same": {"adapter": "duckdb", "config": {"uri": "/new.db"}},
+    }
 
 
 def test_delete_profile_removes_only_the_named_entry(tmp_path):
