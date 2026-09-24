@@ -13,8 +13,6 @@ class SessionNotFoundError(Exception):
 class Session:
     id: str
     adapter: DBAdapter
-    active_database: str | None = None
-    active_schema: str | None = None
 
 
 class SessionManager:

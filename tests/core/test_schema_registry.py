@@ -1,96 +1,95 @@
-from dbridge.adapters.base import TableSchema
+from dbridge.adapters.base import ContainerEntry, TableEntry, TableRef, TableSchema
 from dbridge.core.schema_registry import SchemaRegistry
 
 
-class FakeAdapter:
+class CountingAdapter:
     def __init__(self):
-        self.table_calls = 0
+        self.calls = {"databases": 0, "schemas": 0, "tables": 0, "metadata": 0}
 
-    def list_tables(self, database=None, schema=None):
-        self.table_calls += 1
-        return ["a", "b"]
+    def list_databases(self):
+        self.calls["databases"] += 1
+        return [ContainerEntry("first"), ContainerEntry("second")]
 
-    def get_table_schema(self, fqn):
-        return None
+    def list_schemas(self, path):
+        self.calls["schemas"] += 1
+        return [ContainerEntry(path[0] + "_schema")]
 
+    def list_tables(self, path):
+        self.calls["tables"] += 1
+        return [TableEntry("orders", f'"{path[0]}"."main"."orders"')]
 
-def test_caches_within_ttl():
-    fake = FakeAdapter()
-    reg = SchemaRegistry(fake, ttl_seconds=60)
-    assert reg.list_tables() == ["a", "b"]
-    assert reg.list_tables() == ["a", "b"]
-    assert fake.table_calls == 1
-
-
-def test_refresh_clears_cache():
-    fake = FakeAdapter()
-    reg = SchemaRegistry(fake, ttl_seconds=60)
-    reg.list_tables()
-    reg.refresh()
-    reg.list_tables()
-    assert fake.table_calls == 2
+    def get_table_schema(self, table):
+        self.calls["metadata"] += 1
+        return TableSchema(name=table.name, scope=table.path)
 
 
-def test_ttl_expiry():
-    fake = FakeAdapter()
-    reg = SchemaRegistry(fake, ttl_seconds=0)
-    reg.list_tables()
-    reg.list_tables()
-    assert fake.table_calls == 2
+def _introspect(registry):
+    return (
+        registry.list_databases(),
+        registry.list_schemas(("first",)),
+        registry.list_tables(("first", "main")),
+        registry.get_table_schema(TableRef("orders", ("first", "main"))),
+    )
 
 
-class _CountingAdapter:
-    """Counts get_table_schema calls and returns a distinct object per fqn."""
-
-    def __init__(self):
-        self.schema_calls = 0
-
-    def list_tables(self, database=None, schema=None):
-        return ["users", "orders"]
-
-    def get_table_schema(self, fqn):
-        self.schema_calls += 1
-        return TableSchema(name=fqn, schema="main", database="main")
+def test_every_introspection_result_is_cached():
+    adapter = CountingAdapter()
+    registry = SchemaRegistry(adapter)
+    first = _introspect(registry)
+    second = _introspect(registry)
+    assert first == second
+    assert all(a is b for a, b in zip(first, second))
+    assert adapter.calls == dict.fromkeys(adapter.calls, 1)
 
 
-def test_get_table_schema_is_cached():
-    """A second lookup of the same fqn must not re-query the adapter."""
-    adapter = _CountingAdapter()
-    registry = SchemaRegistry(adapter, ttl_seconds=60)
-
-    first = registry.get_table_schema("users")
-    second = registry.get_table_schema("users")
-
-    assert first is second
-    assert adapter.schema_calls == 1
-
-
-def test_get_table_schema_caches_per_fqn():
-    adapter = _CountingAdapter()
-    registry = SchemaRegistry(adapter, ttl_seconds=60)
-
-    registry.get_table_schema("users")
-    registry.get_table_schema("orders")
-
-    assert adapter.schema_calls == 2
-
-
-def test_refresh_clears_the_table_schema_cache():
-    adapter = _CountingAdapter()
-    registry = SchemaRegistry(adapter, ttl_seconds=60)
-
-    registry.get_table_schema("users")
+def test_refresh_clears_every_introspection_result():
+    adapter = CountingAdapter()
+    registry = SchemaRegistry(adapter)
+    _introspect(registry)
     registry.refresh()
-    registry.get_table_schema("users")
+    _introspect(registry)
+    assert adapter.calls == dict.fromkeys(adapter.calls, 2)
 
-    assert adapter.schema_calls == 2
 
-
-def test_expired_table_schema_entry_is_refetched():
-    adapter = _CountingAdapter()
+def test_every_introspection_result_expires():
+    adapter = CountingAdapter()
     registry = SchemaRegistry(adapter, ttl_seconds=0)
+    _introspect(registry)
+    _introspect(registry)
+    assert adapter.calls == dict.fromkeys(adapter.calls, 2)
 
-    registry.get_table_schema("users")
-    registry.get_table_schema("users")
 
-    assert adapter.schema_calls == 2
+def test_cache_separates_full_literal_paths_and_table_names():
+    adapter = CountingAdapter()
+    registry = SchemaRegistry(adapter)
+    paths = [("first.with.dot", "main"), ("second", "main")]
+    for path in paths:
+        assert registry.list_schemas(path[:1]) == [ContainerEntry(path[0] + "_schema")]
+        assert registry.list_tables(path)[0].sql_identifier == f'"{path[0]}"."main"."orders"'
+        for name in ("orders", "orders.with.dot"):
+            table = TableRef(name, path)
+            first = registry.get_table_schema(table)
+            assert first.scope == path
+            assert first.name == name
+            assert registry.get_table_schema(table) is first
+    assert adapter.calls == {"databases": 0, "schemas": 2, "tables": 2, "metadata": 4}
+
+
+def test_refresh_reveals_new_catalog_schema_and_table(engine):
+    sid = engine.connect("duckdb", {"uri": ":memory:"})["session_id"]
+    try:
+        databases = engine.list_databases(sid)
+        schemas = engine.list_schemas(sid, ("memory",))
+        tables = engine.list_tables(sid, ("memory", "main"))
+        engine.execute(sid, "ATTACH ':memory:' AS side")
+        engine.execute(sid, "CREATE SCHEMA memory.sales")
+        engine.execute(sid, "CREATE TABLE memory.main.orders (id INTEGER)")
+        assert engine.list_databases(sid) == databases
+        assert engine.list_schemas(sid, ("memory",)) == schemas
+        assert engine.list_tables(sid, ("memory", "main")) == tables
+        engine.refresh_schema(sid)
+        assert "side" in [e["name"] for e in engine.list_databases(sid)]
+        assert "sales" in [e["name"] for e in engine.list_schemas(sid, ("memory",))]
+        assert "orders" in [e["name"] for e in engine.list_tables(sid, ("memory", "main"))]
+    finally:
+        engine.disconnect(sid)

@@ -51,10 +51,13 @@ in separate repositories and own presentation and editor interactions.
 ## Sessions and Profiles
 
 `dbridge/connect` resolves a saved Profile or accepts inline adapter/config data,
-creates a fresh Adapter, connects it, and returns a UUID `session_id`. Each Session
-owns one Adapter; the Engine also creates a SchemaRegistry for it. Disconnect
-closes the Adapter and removes the Session and registry. The active database and
-schema fields exist on Session, but there is no method to select them today.
+creates a fresh Adapter, connects it, and returns a UUID `session_id`, the Adapter's
+ordered Scope Levels, a default Scope Path, and its SQL dialect. Each Session owns
+one Adapter; the Engine also creates a SchemaRegistry for it. Disconnect closes
+the Adapter and removes the Session and registry. Session holds no active metadata
+scope. Clients send a Scope Path with every scoped metadata request, so one
+request's selection cannot change another request's lookup.
+[ADR-0002](adr/0002-explicit-scope-paths.md) records this decision.
 
 Profiles are persisted data. Loading, saving, or deleting a Profile does not
 create or close a Session. Clients manage Profiles through the Profile RPCs.
@@ -82,26 +85,50 @@ protocol exposes no explicit begin/commit/rollback methods. Streaming, query
 cancellation, server-side cursors, and server-to-client notifications are not
 implemented.
 
+Execution accepts SQL without a Scope Path and retains the database engine's SQL
+resolution rules. Sending a metadata Scope Path does not change the driver's
+current catalog, schema, or search path. The default Scope Path is discovery data,
+derived from the live Adapter, rather than an implicit scope for later requests.
+
 ## Schema browsing and completion
 
-Each Session has an in-memory TTL cache (default 60 seconds) for `listTables` and
-`getTableSchema`, keyed by their arguments (including literal structured table identity). `refreshSchema` clears it. Database
-and schema listings bypass this cache; query execution does not automatically
-invalidate it after DDL. There is no persistent or shared cache.
+Adapters declare ordered Scope Levels with stable names and display labels:
+SQLite has one namespace level, DuckDB has catalog then schema levels. A full
+Scope Path has one literal component per level. SQLite therefore reports
+`["main"]`, eliminating the old redundant `main/main` hierarchy. Attached SQLite
+namespaces and DuckDB catalogs are first-level containers. `listDatabases`
+enumerates this first level without a path. `listSchemas` takes a one-component
+path and returns the next level; for SQLite it returns an empty list.
 
-TableSchema includes an Adapter-owned `sql_identifier`: double-quoted
-schema/table components for SQLite, catalog/schema/table for DuckDB. The additive
-`getTableSchema.table` object carries raw name/database/schema components and takes
-precedence over the legacy dot-separated fqn; listTables continues returning names.
-The registry uses an immutable TableRef as its structured cache key. DuckDB
-unscoped metadata uses its current catalog/schema instead of combining same-named
-tables. SQLite listings and metadata honor attached namespaces without changing
-the existing redundant database/schema hierarchy. Unresolved tables return a null
-identifier. Metadata failures remain errors, not permission to use a bare name.
+Container entries carry `name` and `internal`, retaining engine-internal entries
+for clients to present as appropriate. SQLite marks its `temp` namespace when
+present. DuckDB marks `system` and `temp` catalogs, their schemas, and
+`information_schema`/`pg_catalog` in user catalogs. User catalogs and their
+`main` schemas remain unmarked.
+
+Each Session has an in-memory TTL cache (default 60 seconds) covering database,
+schema, and table listings plus table metadata. Schema/table listings are keyed by
+the full literal request path; metadata uses an immutable `TableRef(name, path)`.
+`refreshSchema` clears every cached introspection result and returns current
+Scope Levels and a default Scope Path. Its declaration is authoritative over the
+connect-time copy. Query execution does not invalidate caches after DDL or
+`ATTACH`; clients refresh to rebuild their metadata view. There is no persistent
+or shared cache.
+
+`listTables` returns entries containing a literal `name` and an Adapter-owned
+`sql_identifier`. `getTableSchema` requires top-level `path` and `name` parameters
+and reports `scope` with the Adapter's exact arity. Legacy `fqn`, `table`,
+`database`, and `schema` inputs are rejected on scoped metadata requests. Paths
+must be arrays of nonempty strings with the operation's required arity; invalid
+paths return `INVALID_REQUEST` without terminating the server. Each identifier
+quotes the path components in order followed by the table name, doubling embedded
+double quotes. Literal dots remain part of a component. Unresolved tables return
+no columns and a null identifier. Metadata failures remain errors.
 
 SQLite reports column metadata, primary keys, and foreign keys. DuckDB reports
-columns but currently returns empty primary/foreign key lists. `getERD` returns
-`{"status": "not_implemented", "tables": [...]}`.
+columns but currently returns empty primary/foreign key lists. `getERD` requires a
+full Scope Path and returns `{"status": "not_implemented", "tables": [...]}`
+with that path's table entries.
 
 Completion uses an optional UTF-8 byte offset `position`, which defaults to the
 end of `sql`. Unquoted qualified column positions such as `p.` and `p.na` are
@@ -112,7 +139,9 @@ boundaries; returned insertion text is the bare column name. Unresolvable
 qualifiers and metadata failures return no qualified suggestions. Physical source
 components travel as structured table identities through the schema registry, so
 literal dots in quoted table/schema/catalog names cannot select a different
-namespace. Completion detail/sort text remains separate from metadata identity.
+namespace. Missing leading source qualifiers come from the request's Scope Path;
+explicit SQL qualifiers retain their own containers. Completion detail/sort text
+remains separate from metadata identity.
 
 Unqualified SELECT target expressions use the same cursor marker and exact SELECT
 scope. They offer columns of that scope's physical FROM/JOIN sources, including
@@ -122,7 +151,10 @@ When no physical source resolves, including bare `SELECT `, completion returns
 dialect keywords without introspecting other tables. Metadata failures skip the
 affected source; no matching column prefix returns an empty list.
 
-FROM/JOIN contexts still offer tables. The legacy unqualified WHERE/AND/OR/ON
+FROM/JOIN contexts offer tables only from the request's full Scope Path. Their
+display labels are bare names; every table suggestion inserts its executable
+fully qualified identifier, so attached-container selections execute without
+changing driver scope. The legacy unqualified WHERE/AND/OR/ON
 path still uses whole-statement table extraction; other contexts fall back to
 dialect keywords. CTE/derived-table projections, outer correlated references,
 quoted qualifier syntax, values, and richer ranking remain deferred. See the

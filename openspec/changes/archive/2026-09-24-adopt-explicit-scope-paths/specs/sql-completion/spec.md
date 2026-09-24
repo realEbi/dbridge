@@ -61,9 +61,9 @@ Scope Path. Column suggestions SHALL retain the existing `label`, `kind`, `detai
 insertion text so the existing qualifier remains once. Unqualified table, column, and
 keyword completion SHALL remain available. Table suggestions SHALL come only from the
 request's Scope Path, so the same table name SHALL NOT appear twice for one request
-from containers the client did not ask about. Insertion text for a table in the
-request's Scope Path SHALL be its bare name; insertion text for a physical source
-resolved outside that Scope Path SHALL be its executable qualified identifier.
+from containers the client did not ask about. Every table suggestion SHALL insert its Adapter-provided executable qualified
+`sql_identifier`, including tables inside the requested Scope Path. Table labels
+SHALL remain literal bare names. Metadata scope does not change SQL execution scope.
 
 #### Scenario: Multibyte text before the cursor
 - **WHEN** SQL contains multibyte text before `p.` and position is its UTF-8 byte

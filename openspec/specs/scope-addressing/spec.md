@@ -1,10 +1,12 @@
+# scope-addressing Specification
+
 ## Purpose
 
 Address database metadata by explicit, Adapter-declared Scope Paths so that every
 listing and lookup states where it applies, and clients render each engine's real
 container hierarchy instead of assuming a fixed database/schema pair.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Describe the Adapter's scope hierarchy
 
@@ -15,7 +17,9 @@ declaration together with a default Scope Path valid for the new Session, so a c
 can issue scoped operations without a discovery request. `dbridge/refreshSchema`
 SHALL return the current declaration and default Scope Path. The declaration returned
 by `refreshSchema` SHALL be authoritative; the copy returned by `connect` describes
-the hierarchy as of connect time. A Session SHALL NOT expose a method that changes
+the hierarchy as of connect time. The wire declaration SHALL use `levels: [{name, label}]` and
+`default_path: [string, ...]`. Connect SHALL include `session_id` and `dialect`;
+refresh SHALL include `ok: true`. A Session SHALL NOT expose a method that changes
 its hierarchy.
 
 #### Scenario: SQLite declares a single level
@@ -32,13 +36,14 @@ its hierarchy.
 #### Scenario: Hierarchy grows while the Session is live
 - **WHEN** a DuckDB Session attaches a second catalog and the client calls
   `dbridge/refreshSchema`
-- **THEN** the returned declaration and database listing include the attached catalog
+- **THEN** the response returns the current Scope Levels and default Scope Path
+- **AND** the next database listing includes the attached catalog
 - **AND** the Scope Paths the client already holds continue to resolve their tables
 
 ### Requirement: Require an explicit Scope Path for metadata operations
 
 `dbridge/listSchemas`, `dbridge/listTables`, `dbridge/getTableSchema`,
-`dbridge/getERD`, and `dbridge/complete` SHALL require a Scope Path. A Scope Path
+`dbridge/getERD`, and `dbridge/complete` SHALL require a Scope Path in `path`. A Scope Path
 SHALL be an ordered list of nonempty literal strings whose length matches the number
 of leading Scope Levels the operation addresses. A request whose Scope Path is
 missing, is not a list of nonempty strings, or has an arity the Adapter did not
@@ -46,6 +51,9 @@ declare SHALL return `INVALID_REQUEST` without terminating the server. The serve
 SHALL NOT retain an active or current scope for a Session, and SHALL NOT substitute
 one when a request omits its Scope Path. `dbridge/listDatabases` SHALL NOT take a
 Scope Path, because it enumerates the first Scope Level.
+`listSchemas` SHALL take a one-component leading path; SQLite SHALL return an empty
+list because it declares no second tier. Table listings, table metadata, ERD, and
+completion SHALL require a full declared path.
 
 #### Scenario: Scope Path omitted
 - **WHEN** a client calls `dbridge/listTables` without a Scope Path
@@ -65,11 +73,11 @@ Scope Path, because it enumerates the first Scope Level.
 
 ### Requirement: Address tables by Scope Path and name
 
-`dbridge/getTableSchema` SHALL identify a table by a Scope Path plus a literal table
-name. The dot-separated `fqn` parameter SHALL no longer be accepted. Every component
+`dbridge/getTableSchema` SHALL identify a table by a `path` plus a literal table
+`name`, both top-level request parameters. The dot-separated `fqn` parameter SHALL no longer be accepted. Every component
 and the table name SHALL be treated as a literal string: a component containing a
 dot, a space, an embedded double quote, or a reserved word SHALL NOT be split or
-reinterpreted. The returned metadata SHALL report the table's Scope Path with exactly
+reinterpreted. The returned metadata SHALL report the table's Scope Path in `scope` with exactly
 the arity its Adapter declares, and SHALL NOT report the same container value under
 two different level names. A resolved table SHALL carry an executable
 `sql_identifier`; an unresolved table SHALL carry a null identifier.
@@ -101,8 +109,8 @@ two different level names. A resolved table SHALL carry an executable
 `dbridge/listTables` SHALL return an entry per table carrying its literal name and an
 executable `sql_identifier`, so a client can build runnable SQL without a further
 metadata request. `dbridge/listDatabases` and `dbridge/listSchemas` SHALL return an
-entry per container carrying its literal name and whether the engine treats it as
-internal rather than user data. Engine-internal containers SHALL be marked and
+entry per container carrying its literal `name` and an `internal` boolean indicating
+whether the engine treats it as internal rather than user data. Engine-internal containers SHALL be marked and
 returned, not omitted.
 
 #### Scenario: Two catalogs no longer collapse into indistinguishable entries

@@ -4,6 +4,27 @@ from dataclasses import dataclass, field
 from dbridge.logging import get_logger
 
 
+ScopePath = tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ScopeLevel:
+    name: str
+    label: str
+
+
+@dataclass(frozen=True)
+class ContainerEntry:
+    name: str
+    internal: bool = False
+
+
+@dataclass(frozen=True)
+class TableEntry:
+    name: str
+    sql_identifier: str
+
+
 @dataclass
 class ColumnDef:
     name: str
@@ -23,15 +44,13 @@ class ForeignKey:
 @dataclass(frozen=True)
 class TableRef:
     name: str
-    database: str | None = None
-    schema: str | None = None
+    path: ScopePath
 
 
 @dataclass
 class TableSchema:
     name: str
-    schema: str | None
-    database: str | None
+    scope: ScopePath
     columns: list[ColumnDef] = field(default_factory=list)
     primary_keys: list[str] = field(default_factory=list)
     foreign_keys: list[ForeignKey] = field(default_factory=list)
@@ -64,18 +83,22 @@ class DBAdapter(ABC):
     def execute(self, sql: str) -> QueryResult: ...
 
     @abstractmethod
-    def list_databases(self) -> list[str]: ...
+    def scope_levels(self) -> list[ScopeLevel]: ...
 
     @abstractmethod
-    def list_schemas(self, database: str | None = None) -> list[str]: ...
+    def default_scope(self) -> ScopePath: ...
 
     @abstractmethod
-    def list_tables(
-        self, database: str | None = None, schema: str | None = None
-    ) -> list[str]: ...
+    def list_databases(self) -> list[ContainerEntry]: ...
 
     @abstractmethod
-    def get_table_schema(self, fqn: str | TableRef) -> TableSchema: ...
+    def list_schemas(self, path: ScopePath) -> list[ContainerEntry]: ...
+
+    @abstractmethod
+    def list_tables(self, path: ScopePath) -> list[TableEntry]: ...
+
+    @abstractmethod
+    def get_table_schema(self, table: TableRef) -> TableSchema: ...
 
     @abstractmethod
     def dialect_name(self) -> str: ...

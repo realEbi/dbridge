@@ -30,12 +30,8 @@ this direction. Clients continue to live in their own repositories.
 Make the existing server/client path predictable: target the right Session and
 table, preserve Profiles, refresh metadata, and execute the intended statement.
 
-Key work includes [Profile renames](backlog/001-profile-rename.md),
-[database hierarchies](backlog/003-database-hierarchy.md),
-[cache coverage](backlog/004-introspection-cache-coverage.md),
-[DuckDB constraints](backlog/005-duckdb-constraints.md),
-[statement selection](backlog/006-statement-under-cursor.md), and
-[Session dialect](backlog/008-session-dialect.md). The backlog also carries
+Remaining core work includes [Profile renames](backlog/001-profile-rename.md) and
+[DuckDB constraints](backlog/005-duckdb-constraints.md). The backlog also carries
 completion and client presentation defects.
 
 Progress is demonstrated by actual protocol and client scenarios, including
@@ -50,11 +46,21 @@ execution are also implemented and verified with the Neovim Client. See
 [002](backlog/002-qualified-identifiers.md), [028](backlog/028-active-session-indicator.md),
 [029](backlog/029-client-schema-refresh.md), and [006](backlog/006-statement-under-cursor.md).
 
+[Database hierarchies](backlog/003-database-hierarchy.md),
+[complete metadata cache coverage](backlog/004-introspection-cache-coverage.md),
+and [Session dialect reporting](backlog/008-session-dialect.md) are implemented.
+Adapters declare their real container levels, every scoped metadata request names
+an explicit Scope Path, and refresh clears all introspection caches while
+re-delivering hierarchy defaults. Table completion inserts executable qualified
+identifiers for the selected path. The linked server/client
+[migration](../openspec/changes/archive/2026-09-24-adopt-explicit-scope-paths/proposal.md) verified
+attached-catalog and namespace browsing, scope-preserving refresh, and execution
+of completed identifiers in both engines.
+
 Type and lint checks are clean and run in the existing CI matrix (`make check`
 locally). Logger reuse preserves one diagnostic handler; see the verified
 [quality-check maintenance change](../openspec/changes/archive/2026-09-23-restore-server-quality-checks/).
-Profile rename, browsing hierarchy, broader cache coverage, DuckDB constraints,
-and dialect reporting remain open; this milestone is not complete.
+Profile rename and DuckDB constraints remain open; this milestone is not complete.
 
 ## 2. Responsive queries and larger results
 
@@ -64,12 +70,13 @@ then introduce [large-result delivery](backlog/013-large-results.md),
 [cancellation](backlog/009-query-cancellation.md) with explicit resource lifetimes.
 Resolve cursors versus pagination/streaming before standardizing the wire shape.
 
-[Transactions](backlog/014-transactions.md),
-[bound parameters](backlog/049-query-parameters.md), and
-[active database/schema selection](backlog/048-session-scope-selection.md)
-extend query control. They need their own behavioral decisions and do not all
-depend on adopting asyncio. Revisit [ADR-0001](adr/0001-sync-core-for-phase-1.md)
-when the execution model changes.
+[Transactions](backlog/014-transactions.md) and
+[bound parameters](backlog/049-query-parameters.md) extend query control. They need
+their own behavioral decisions and do not all depend on adopting asyncio.
+Server-held [active scope selection](backlog/048-session-scope-selection.md) was
+rejected in favor of explicit per-request metadata paths; it is no longer future
+work. Revisit [ADR-0001](adr/0001-sync-core-for-phase-1.md) when the execution model
+changes.
 
 ## 3. Broader database support
 

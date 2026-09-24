@@ -6,7 +6,7 @@ nothing to distinguish the entries, completion offers both as identical items, a
 a table listed from a non-default catalog completes to text that fails to execute
 (`Catalog Error: Table with name shipments does not exist!`). Meanwhile
 `getTableSchema` already speaks structured identity after
-[qualified table identifiers](../archive/2026-09-23-qualify-generated-table-identifiers/proposal.md),
+[qualified table identifiers](../2026-09-23-qualify-generated-table-identifiers/proposal.md),
 so listing and resolution now disagree about what an unscoped call means.
 
 The fixed `database`/`schema` pair is the root cause. SQLite has one namespace level
@@ -44,7 +44,8 @@ resolves four backlog items that are all the same seam viewed from different sid
   `getTableSchema` round trip per table and letting completion insert text that runs.
 - Completion bounds table suggestions to the requested Scope Path, ending duplicate
   indistinguishable items. Explicitly qualified sources still resolve on their own
-  terms; a source outside the requested scope inserts its qualified identifier.
+  terms; every table suggestion inserts its executable qualified identifier while
+  retaining a bare display label.
 - `Session.active_database` and `Session.active_schema` are removed. Nothing reads
   them today and `tests/core/test_session.py` pins them as permanently `None`.
 
@@ -75,10 +76,11 @@ resolves four backlog items that are all the same seam viewed from different sid
 ## Impact
 
 **Repositories.** This change owns server behavior and the DSP contract. It breaks
-6 of the 13 documented RPCs, so `dbridge.nvim` must move in lockstep with a linked
+8 of the 13 documented RPCs, so `dbridge.nvim` must move in lockstep with a linked
 client change; the client reads `.database`/`.schema` and calls the affected methods
-today. Nothing here authorizes editing that repository — the client change is its
-own proposal, and the shared flow needs integration verification against a DuckDB
+today. The user authorized its linked
+[client change](../../../../../dbridge.nvim/openspec/changes/archive/2026-09-24-adopt-explicit-scope-paths/proposal.md)
+for the migration, and the shared flow needs integration verification against a DuckDB
 Session with an attached catalog and a SQLite Session with an attached namespace.
 
 **Protocol compatibility.** No compatibility shims and no versioned fallback. The
@@ -95,24 +97,24 @@ scope tuples; listings move into the registry), `core/session.py` (fields remove
 Path and Scope Level are new vocabulary), `docs/roadmap.md` milestone 1, and backlog
 statuses.
 
-**Backlog and roadmap.** Closes [003](../../../docs/backlog/003-database-hierarchy.md)
-(hierarchy), [004](../../../docs/backlog/004-introspection-cache-coverage.md) (cache
-coverage), and [008](../../../docs/backlog/008-session-dialect.md) (dialect).
-Resolves [048](../../../docs/backlog/048-session-scope-selection.md) by deletion:
+**Backlog and roadmap.** Closes [003](../../../../docs/backlog/003-database-hierarchy.md)
+(hierarchy), [004](../../../../docs/backlog/004-introspection-cache-coverage.md) (cache
+coverage), and [008](../../../../docs/backlog/008-session-dialect.md) (dialect).
+Resolves [048](../../../../docs/backlog/048-session-scope-selection.md) by deletion:
 server-side active scope is removed rather than implemented, so that item closes as
 dropped with its reasoning recorded. Advances roadmap milestone 1, *Reliable daily
-use*, which stays open on [001](../../../docs/backlog/001-profile-rename.md) and
-[005](../../../docs/backlog/005-duckdb-constraints.md).
+use*, which stays open on [001](../../../../docs/backlog/001-profile-rename.md) and
+[005](../../../../docs/backlog/005-duckdb-constraints.md).
 
 **Explicitly out of scope.** Automatic invalidation after DDL remains
-[043](../../../docs/backlog/043-ddl-cache-invalidation.md), which inherits a new
+[043](../../../../docs/backlog/043-ddl-cache-invalidation.md), which inherits a new
 consequence: a client that runs `ATTACH` and never refreshes holds a stale hierarchy
 until it does. That is bounded — every metadata call carries its own explicit Scope
 Path, so nothing resolves against stale hierarchy — and classifying schema-changing
 SQL deserves its own design. Scoped (rather than whole-Session) refresh granularity
-stays with [024](../../../docs/backlog/024-remote-cache-policy.md). `getERD` is
+stays with [024](../../../../docs/backlog/024-remote-cache-policy.md). `getERD` is
 rescoped because it calls `list_tables()` unscoped, but keeps returning its
 `not_implemented` stub; real extraction remains
-[011](../../../docs/backlog/011-erd-extraction.md), gated on
-[005](../../../docs/backlog/005-duckdb-constraints.md). The synchronous execution
-model and [ADR-0001](../../../docs/adr/0001-sync-core-for-phase-1.md) are untouched.
+[011](../../../../docs/backlog/011-erd-extraction.md), gated on
+[005](../../../../docs/backlog/005-duckdb-constraints.md). The synchronous execution
+model and [ADR-0001](../../../../docs/adr/0001-sync-core-for-phase-1.md) are untouched.

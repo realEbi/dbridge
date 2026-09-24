@@ -1,6 +1,8 @@
 import time
 
-from dbridge.adapters.base import DBAdapter, TableRef, TableSchema
+from dbridge.adapters.base import (
+    ContainerEntry, DBAdapter, ScopePath, TableEntry, TableRef, TableSchema,
+)
 
 
 class SchemaRegistry:
@@ -18,16 +20,17 @@ class SchemaRegistry:
         self._cache[key] = (now, value)
         return value
 
-    def list_tables(
-        self, database: str | None = None, schema: str | None = None
-    ) -> list[str]:
-        return self._get(
-            ("tables", database, schema),
-            lambda: self._adapter.list_tables(database, schema),
-        )
+    def list_databases(self) -> list[ContainerEntry]:
+        return self._get(("databases",), self._adapter.list_databases)
 
-    def get_table_schema(self, fqn: str | TableRef) -> TableSchema:
-        return self._get(("schema", fqn), lambda: self._adapter.get_table_schema(fqn))
+    def list_schemas(self, path: ScopePath) -> list[ContainerEntry]:
+        return self._get(("schemas", path), lambda: self._adapter.list_schemas(path))
+
+    def list_tables(self, path: ScopePath) -> list[TableEntry]:
+        return self._get(("tables", path), lambda: self._adapter.list_tables(path))
+
+    def get_table_schema(self, table: TableRef) -> TableSchema:
+        return self._get(("table", table), lambda: self._adapter.get_table_schema(table))
 
     def refresh(self) -> None:
         self._cache.clear()

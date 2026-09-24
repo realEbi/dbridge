@@ -14,10 +14,12 @@ SELECT scope when an unquoted qualifier before the cursor refers to that table's
 alias, or its name when unaliased. This SHALL work in SELECT expressions including
 after commas and in WHERE and JOIN ON expressions for SQLite and DuckDB Sessions.
 Alias matching and optional column-prefix filtering SHALL be case-insensitive.
-Physical source lookup SHALL retain schema/catalog qualifiers, including SQLite
-attached database namespaces and DuckDB catalog/schema scopes. Literal dots,
-spaces, and embedded quotes in a source name or namespace SHALL remain part of
-that identifier component and MUST NOT resolve a different physical table.
+Physical source lookup SHALL retain the qualifiers written in the SQL. A source whose
+qualifiers name fewer containers than the Adapter declares SHALL have its missing
+leading components taken from the request's Scope Path, not from the Adapter's own
+current catalog or schema. Literal dots, spaces, and embedded quotes in a source name
+or qualifier SHALL remain part of that identifier component and MUST NOT resolve a
+different physical table.
 
 #### Scenario: Complete either selected product column
 - **WHEN** SQL is `SELECT p.name, p.category FROM products p LIMIT 100` and the
@@ -50,6 +52,13 @@ that identifier component and MUST NOT resolve a different physical table.
 - **THEN** qualified completion offers only the literal table's columns
 - **AND** the same holds when the source uses the server-generated qualified identifier
 
+#### Scenario: Partly qualified source resolves against the request Scope Path
+- **WHEN** a DuckDB query selects `sales.products` as p, the request's Scope Path names
+  an attached catalog, and a different products table exists in the `sales` schema of
+  another catalog
+- **THEN** only the columns of the table in the requested catalog's `sales` schema are
+  offered
+
 ### Requirement: Preserve scope and tolerate unresolved SQL
 
 Qualified completion SHALL resolve only sources selected by the SELECT containing
@@ -81,10 +90,15 @@ by this initial contract and SHALL NOT produce guessed physical-table columns.
 ### Requirement: Keep cursor and item compatibility
 
 Completion SHALL continue accepting full SQL with an optional UTF-8 byte offset
-`position`, defaulting to the end. Column suggestions SHALL retain the existing
-`label`, `kind`, `detail`, `insert_text`, and `sort_key` fields, with only the
-unqualified column name as insertion text so the existing qualifier remains once.
-Existing unqualified table, column, and keyword completion SHALL remain available.
+`position`, defaulting to the end, and SHALL additionally require the request's
+Scope Path. Column suggestions SHALL retain the existing `label`, `kind`, `detail`,
+`insert_text`, and `sort_key` fields, with only the unqualified column name as
+insertion text so the existing qualifier remains once. Unqualified table, column, and
+keyword completion SHALL remain available. Table suggestions SHALL come only from the
+request's Scope Path, so the same table name SHALL NOT appear twice for one request
+from containers the client did not ask about. Every table suggestion SHALL insert its Adapter-provided executable qualified
+`sql_identifier`, including tables inside the requested Scope Path. Table labels
+SHALL remain literal bare names. Metadata scope does not change SQL execution scope.
 
 #### Scenario: Multibyte text before the cursor
 - **WHEN** SQL contains multibyte text before `p.` and position is its UTF-8 byte
@@ -95,6 +109,20 @@ Existing unqualified table, column, and keyword completion SHALL remain availabl
 - **WHEN** the cursor follows `p.na` inside `p.name`
 - **THEN** completion resolves the same table and filters by `na`
 - **AND** the suggestion inserts `name`, not `p.name`
+
+#### Scenario: Same-named tables in two containers
+- **WHEN** same-named tables exist in two DuckDB catalogs and completion is requested
+  after `FROM ` with a Scope Path naming one of them
+- **THEN** that table name is offered once, for the requested catalog only
+
+#### Scenario: Completed table name executes
+- **WHEN** a client executes a statement built from the insertion text of a table
+  suggestion, without editing it
+- **THEN** the statement reads the intended table rather than failing to resolve it
+
+#### Scenario: Scope Path missing from a completion request
+- **WHEN** `dbridge/complete` is called without a Scope Path
+- **THEN** the request returns `INVALID_REQUEST` and the server stays available
 
 ### Requirement: Complete unqualified SELECT target expressions
 

@@ -61,13 +61,13 @@ def test_e2e_connect_execute_disconnect():
 
         resp = _request(proc, {
             "jsonrpc": "2.0", "id": 5, "method": "dbridge/listTables",
-            "params": {"session_id": sid},
+            "params": {"path": ["main"], "session_id": sid},
         })
-        assert "t" in resp["result"]
+        assert "t" in [entry["name"] for entry in resp["result"]]
 
         resp = _request(proc, {
             "jsonrpc": "2.0", "id": 6, "method": "dbridge/getTableSchema",
-            "params": {"session_id": sid, "fqn": "t"},
+            "params": {"path": ["main"], "session_id": sid, "name": "t"},
         })
         assert [c["name"] for c in resp["result"]["columns"]] == ["id", "name"]
 
@@ -101,7 +101,7 @@ def test_e2e_complete():
         # FROM context → table names
         resp = _request(proc, {
             "jsonrpc": "2.0", "id": 4, "method": "dbridge/complete",
-            "params": {"session_id": sid, "sql": "SELECT * FROM "},
+            "params": {"path": ["main"], "session_id": sid, "sql": "SELECT * FROM "},
         })
         items = resp["result"]
         kinds = {i["kind"] for i in items}
@@ -113,7 +113,7 @@ def test_e2e_complete():
         # SELECT position (cursor before FROM) → columns of tables in scope
         resp = _request(proc, {
             "jsonrpc": "2.0", "id": 7, "method": "dbridge/complete",
-            "params": {"session_id": sid, "sql": "SELECT  FROM users", "position": 7},
+            "params": {"path": ["main"], "session_id": sid, "sql": "SELECT  FROM users", "position": 7},
         })
         items = resp["result"]
         assert {i["kind"] for i in items} == {"column"}
@@ -122,7 +122,7 @@ def test_e2e_complete():
         # WHERE context → columns in scope
         resp = _request(proc, {
             "jsonrpc": "2.0", "id": 5, "method": "dbridge/complete",
-            "params": {"session_id": sid, "sql": "SELECT id FROM users WHERE "},
+            "params": {"path": ["main"], "session_id": sid, "sql": "SELECT id FROM users WHERE "},
         })
         items = resp["result"]
         assert any(i["kind"] == "column" for i in items)
@@ -131,7 +131,7 @@ def test_e2e_complete():
         # Keyword fallback
         resp = _request(proc, {
             "jsonrpc": "2.0", "id": 6, "method": "dbridge/complete",
-            "params": {"session_id": sid, "sql": ""},
+            "params": {"path": ["main"], "session_id": sid, "sql": ""},
         })
         items = resp["result"]
         assert any(i["kind"] == "keyword" for i in items)
@@ -159,9 +159,9 @@ def test_e2e_complete_alias_columns(adapter, tmp_path):
         return response["result"]
 
     try:
-        session_id = rpc("connect", adapter=adapter, config={"uri": ":memory:"})[
-            "session_id"
-        ]
+        connected = rpc("connect", adapter=adapter, config={"uri": ":memory:"})
+        session_id = connected["session_id"]
+        scope_path = connected["default_path"]
         rpc(
             "execute", session_id=session_id,
             sql="CREATE TABLE products (id INTEGER, name TEXT, category TEXT)",
@@ -185,7 +185,7 @@ def test_e2e_complete_alias_columns(adapter, tmp_path):
         for marked_sql, columns in cases:
             before, _, after = marked_sql.partition("|")
             items = rpc(
-                "complete", session_id=session_id, sql=before + after,
+                "complete", path=scope_path, session_id=session_id, sql=before + after,
                 position=len(before.encode("utf-8")),
             )
             assert [item["label"] for item in items] == columns, marked_sql
@@ -243,9 +243,9 @@ def test_e2e_complete_unqualified_select(adapter, tmp_path):
         return response["result"]
 
     try:
-        session_id = rpc("connect", adapter=adapter, config={"uri": ":memory:"})[
-            "session_id"
-        ]
+        connected = rpc("connect", adapter=adapter, config={"uri": ":memory:"})
+        session_id = connected["session_id"]
+        scope_path = connected["default_path"]
         rpc(
             "execute", session_id=session_id,
             sql="CREATE TABLE products (id INTEGER, name TEXT, category TEXT)",
@@ -269,7 +269,7 @@ def test_e2e_complete_unqualified_select(adapter, tmp_path):
         ]:
             before, after = marked_sql.split("|")
             items = rpc(
-                "complete", session_id=session_id, sql=before + after,
+                "complete", path=scope_path, session_id=session_id, sql=before + after,
                 position=len(before.encode("utf-8")),
             )
             assert [item["label"] for item in items] == columns, marked_sql
@@ -277,10 +277,61 @@ def test_e2e_complete_unqualified_select(adapter, tmp_path):
             assert {item["kind"] for item in items} == {"column"}, marked_sql
 
         for sql in ["SELECT ", "SELECT id, "]:
-            items = rpc("complete", session_id=session_id, sql=sql)
+            items = rpc("complete", path=scope_path, session_id=session_id, sql=sql)
             assert {item["kind"] for item in items} == {"keyword"}
             assert "FROM" in [item["label"] for item in items]
         assert rpc("disconnect", session_id=session_id) == {"ok": True}
+    finally:
+        _stop(proc)
+    assert proc.returncode == 0
+
+
+@pytest.mark.parametrize("adapter", ["sqlite", "duckdb"])
+def test_e2e_explicit_scope_contract_and_recovery(adapter, tmp_path):
+    env = os.environ.copy()
+    env.update(XDG_CONFIG_HOME=str(tmp_path), APPDATA=str(tmp_path))
+    proc = _spawn(env=env)
+    request_id = 0
+
+    def rpc(method, params):
+        nonlocal request_id
+        request_id += 1
+        response = _request(proc, {
+            "jsonrpc": "2.0", "id": request_id, "method": "dbridge/" + method,
+            "params": params,
+        })
+        assert response is not None
+        assert response["id"] == request_id
+        return response
+
+    try:
+        connected = rpc("connect", {"adapter": adapter, "config": {
+            "uri": str(tmp_path / ("sample.db" if adapter == "sqlite" else "sample.duckdb")),
+        }})["result"]
+        sid, path = connected["session_id"], connected["default_path"]
+        assert connected["dialect"] == adapter
+        assert [level["name"] for level in connected["levels"]] == (
+            ["namespace"] if adapter == "sqlite" else ["catalog", "schema"]
+        )
+        assert len(path) == len(connected["levels"])
+        assert all(level["label"] for level in connected["levels"])
+        assert "error" not in rpc("execute", {"session_id": sid, "sql": "CREATE TABLE orders (id INTEGER)"})
+        params = {"session_id": sid, "path": path}
+        tables = rpc("listTables", params)["result"]
+        assert [entry["name"] for entry in tables] == ["orders"]
+        schema = rpc("getTableSchema", {**params, "name": "orders"})["result"]
+        assert schema["scope"] == path
+        assert schema["sql_identifier"] == tables[0]["sql_identifier"]
+        assert [column["name"] for column in schema["columns"]] == ["id"]
+        # Every malformed request responds, then the same subprocess still executes SQL.
+        for method in ("listSchemas", "listTables", "getTableSchema", "getERD", "complete"):
+            for invalid in ({}, {"path": [1]}, {"path": [""]}, {"path": ["a", "b", "c"]}):
+                response = rpc(method, {"session_id": sid, "name": "orders", "sql": "SELECT ", **invalid})
+                assert response["error"]["code"] == -32600
+                assert rpc("execute", {"session_id": sid, "sql": "SELECT 1"})["result"]["rows"] == [[1]]
+        refreshed = rpc("refreshSchema", {"session_id": sid})["result"]
+        assert refreshed == {"ok": True, "levels": connected["levels"], "default_path": path}
+        assert rpc("disconnect", {"session_id": sid})["result"] == {"ok": True}
     finally:
         _stop(proc)
     assert proc.returncode == 0

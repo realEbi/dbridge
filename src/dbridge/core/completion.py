@@ -8,7 +8,7 @@ import sqlglot
 import sqlglot.expressions as exp
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
-from dbridge.adapters.base import TableRef
+from dbridge.adapters.base import ScopePath, TableRef
 
 # Tokens that indicate the cursor sits after a FROM or JOIN keyword.
 _FROM_JOIN_RE = re.compile(
@@ -70,14 +70,38 @@ def _prefix_at(sql: str, position: int | None) -> str:
     return encoded[:offset].decode("utf-8", errors="ignore")
 
 
-def _extract_tables_from_sql(sql: str) -> list[str]:
-    """Return table names referenced in FROM/JOIN clauses using sqlglot."""
+@dataclass(frozen=True)
+class _TableSource:
+    identity: TableRef
+    label: str
+
+
+def _table_source(table: exp.Table, path: ScopePath) -> _TableSource | None:
+    """Resolve literal source components while retaining SQL-written detail."""
+    parts = table.parts
+    if (
+        not parts
+        or any(not isinstance(part, exp.Identifier) for part in parts)
+        or len(parts) - 1 > len(path)
+        or (table.catalog and not table.db)
+    ):
+        return None
+    qualifiers = tuple(part.name for part in parts[:-1])
+    resolved_path = path[:len(path) - len(qualifiers)] + qualifiers
+    return _TableSource(
+        TableRef(parts[-1].name, resolved_path),
+        ".".join(part.name for part in parts),
+    )
+
+
+def _extract_tables_from_sql(sql: str, path: ScopePath) -> list[_TableSource]:
+    """Return physical source identities from the legacy whole-statement path."""
     try:
         tree = sqlglot.parse_one(sql, error_level=sqlglot.ErrorLevel.IGNORE)
         return [
-            t.name
+            source
             for t in tree.find_all(exp.Table)
-            if t.name
+            if (source := _table_source(t, path)) is not None
         ]
     except Exception:
         return []
@@ -117,7 +141,9 @@ def _column_scope(
     return None
 
 
-def _physical_table(source: exp.Expression | Scope, scope: Scope) -> TableRef | None:
+def _physical_table(
+    source: exp.Expression | Scope, scope: Scope, path: ScopePath,
+) -> _TableSource | None:
     if not isinstance(source, exp.Table):
         return None
     # sqlglot's source map is case-sensitive; SQLite/DuckDB CTE references are
@@ -128,15 +154,12 @@ def _physical_table(source: exp.Expression | Scope, scope: Scope) -> TableRef | 
         return None
     # Keep decoded identifier components separate: a literal "sales.products"
     # must never become the table products in the sales namespace on lookup.
-    return TableRef(source.name, database=source.catalog or None, schema=source.db or None)
+    return _table_source(source, path)
 
 
-def _table_label(table: TableRef) -> str:
-    """Preserve display/sort detail without using that lossy text as an identity."""
-    return ".".join(part for part in (table.database, table.schema, table.name) if part)
-
-
-def _qualified_table(sql: str, prefix: str, match: re.Match[str]) -> TableRef | None:
+def _qualified_table(
+    sql: str, prefix: str, match: re.Match[str], path: ScopePath,
+) -> _TableSource | None:
     found = _column_scope(sql, prefix, match)
     if found is None:
         return None
@@ -147,10 +170,12 @@ def _qualified_table(sql: str, prefix: str, match: re.Match[str]) -> TableRef | 
     ]
     # Unknown, ambiguous, derived, and CTE sources must not borrow physical
     # columns from another scope. Outer references are deferred.
-    return _physical_table(sources[0], scope) if len(sources) == 1 else None
+    return _physical_table(sources[0], scope, path) if len(sources) == 1 else None
 
 
-def _select_tables(sql: str, prefix: str, match: re.Match[str]) -> list[TableRef]:
+def _select_tables(
+    sql: str, prefix: str, match: re.Match[str], path: ScopePath,
+) -> list[_TableSource]:
     found = _column_scope(sql, prefix, match)
     if found is None:
         return []
@@ -167,15 +192,16 @@ def _select_tables(sql: str, prefix: str, match: re.Match[str]) -> list[TableRef
         return []
     return [
         table for _, source in scope.selected_sources.values()
-        if (table := _physical_table(source, scope)) is not None
+        if (table := _physical_table(source, scope, path)) is not None
     ]
 
 
 def complete(
     sql: str,
-    list_tables_fn,          # () -> list[str]
-    get_columns_fn,          # (table: str | TableRef) -> list[str]
+    list_tables_fn,          # () -> list[TableEntry], bound to the request path
+    get_columns_fn,          # (table: TableRef) -> list[str]
     get_keywords_fn,         # () -> list[str]
+    path: ScopePath,
     position: int | None = None,
 ) -> list[dict]:
     """
@@ -196,10 +222,10 @@ def complete(
     qualified = _QUALIFIED_COLUMN_RE.search(prefix)
     if qualified:
         try:
-            table = _qualified_table(sql, prefix, qualified)
+            table = _qualified_table(sql, prefix, qualified, path)
             if table is None:
                 return []
-            table_label = _table_label(table)
+            table_label = table.label
             partial = qualified["partial"].casefold()
             return [
                 CompletionItem(
@@ -208,7 +234,7 @@ def complete(
                     detail=f"{table_label}.{col}",
                     sort_key=f"{table_label}.{col}".lower(),
                 ).to_dict()
-                for col in get_columns_fn(table)
+                for col in get_columns_fn(table.identity)
                 if col.casefold().startswith(partial)
             ]
         except Exception:
@@ -218,25 +244,27 @@ def complete(
         if _FROM_JOIN_RE.search(prefix.rstrip()):
             tables = list_tables_fn()
             return [
-                CompletionItem(label=t, kind="table", detail="table").to_dict()
+                CompletionItem(
+                    label=t.name, kind="table", detail="table", insert_text=t.sql_identifier,
+                ).to_dict()
                 for t in tables
             ]
 
         unqualified = _UNQUALIFIED_COLUMN_RE.search(prefix)
         if unqualified:
-            in_scope = _select_tables(sql, prefix, unqualified)
+            in_scope = _select_tables(sql, prefix, unqualified, path)
             if in_scope:
                 partial = unqualified["partial"].casefold()
                 columns: list[CompletionItem] = []
                 for table in in_scope:
-                    table_label = _table_label(table)
+                    table_label = table.label
                     try:
                         columns.extend(
                             CompletionItem(
                                 label=col, kind="column", detail=f"{table_label}.{col}",
                                 sort_key=f"{table_label}.{col}".lower(),
                             )
-                            for col in get_columns_fn(table)
+                            for col in get_columns_fn(table.identity)
                             if col.casefold().startswith(partial)
                         )
                     except Exception:
@@ -244,17 +272,17 @@ def complete(
                 return [c.to_dict() for c in columns]
 
         if _WHERE_RE.search(prefix.rstrip()):
-            legacy_tables = _extract_tables_from_sql(sql.rstrip())
+            legacy_tables = _extract_tables_from_sql(sql.rstrip(), path)
             columns = []
             for legacy_table in legacy_tables:
                 try:
-                    for col in get_columns_fn(legacy_table):
+                    for col in get_columns_fn(legacy_table.identity):
                         columns.append(
                             CompletionItem(
                                 label=col,
                                 kind="column",
-                                detail=f"{legacy_table}.{col}",
-                                sort_key=f"{legacy_table}.{col}".lower(),
+                                detail=f"{legacy_table.label}.{col}",
+                                sort_key=f"{legacy_table.label}.{col}".lower(),
                             )
                         )
                 except Exception:

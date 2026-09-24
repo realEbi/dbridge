@@ -62,7 +62,7 @@ presentation in clients — which container a user is currently looking at is
 presentation state. The fields have existed since the start, nothing in `src/` reads
 them, and `tests/core/test_session.py:51` pins them as permanently `None` with the
 comment "no protocol method sets them." Removing dead state is cheaper than wiring it
-up. Decisively, backlog [022](../../../docs/backlog/022-transport-selection.md) leaves
+up. Decisively, backlog [022](../../../../docs/backlog/022-transport-selection.md) leaves
 open whether one process serves multiple clients: server-side mutable scope becomes a
 contention bug the moment two clients share a Session, because one client's selection
 silently changes what the other's completion returns. Stateless scope has no such
@@ -72,7 +72,7 @@ failure mode at any topology.
 Terser calls and familiar SQL-shell ergonomics, and it would finally use the existing
 fields. Rejected for the contention risk above, and because it would need revisiting
 exactly when milestone 5 lands. This is what makes
-[048](../../../docs/backlog/048-session-scope-selection.md) close as dropped rather
+[048](../../../../docs/backlog/048-session-scope-selection.md) close as dropped rather
 than done.
 
 *Alternative considered — keep unscoped calls with a documented default.* Rejected:
@@ -118,10 +118,10 @@ changed `list_databases()` from `['memory','system','temp']` to
 `['memory','system','temp','side']` mid-Session — so it must be re-fetchable. Rather
 than add a method for that, it rides `refreshSchema`, which already means "my metadata
 view is stale" and which the client already uses to rebuild its tree (backlog
-[029](../../../docs/backlog/029-client-schema-refresh.md), done: "Refresh now
+[029](../../../../docs/backlog/029-client-schema-refresh.md), done: "Refresh now
 invalidates metadata and rebuilds the tree against the same live Session"). Net effect
 is one fewer method than today's surface plus a discovery call. This is also what makes
-`refreshSchema` honest about [004](../../../docs/backlog/004-introspection-cache-coverage.md):
+`refreshSchema` honest about [004](../../../../docs/backlog/004-introspection-cache-coverage.md):
 it returns the complete refreshed view — levels, default scope, and an emptied cache.
 
 Priming on connect and re-reading on refresh is one truth with two delivery points, not
@@ -142,7 +142,7 @@ to keep out of clients.
 `connect` reports the Adapter's dialect because it is static for the Session. It is
 explicitly *not* how a client learns tree shape.
 
-*Why:* backlog [008](../../../docs/backlog/008-session-dialect.md) already suggests
+*Why:* backlog [008](../../../../docs/backlog/008-session-dialect.md) already suggests
 "potentially alongside session_id in the connect response." Keeping rendering keyed on
 declared levels rather than on a dialect string is what stops MySQL, PostgreSQL,
 Snowflake, and BigQuery (roadmap milestone 3) from each forcing a client change.
@@ -158,14 +158,35 @@ meaning untouched. `CONTEXT.md` gains **Scope Path** and **Scope Level**; it has
 for either today. `sqlite.py:77`'s private `_namespace` helper becomes the Adapter's
 single path component, so that name stays accurate.
 
+### Executable table completion text
+
+Every table completion inserts its Adapter-provided qualified `sql_identifier`.
+Labels remain literal table names and column insertion text is unchanged. The user
+approved this correction during implementation after a live DuckDB probe showed
+that bare `shipments` fails for requested path `side.main` while the engine remains
+in `memory.main`; a same-named default table can instead silently return wrong rows.
+A metadata Scope Path does not alter SQL execution scope. This replaces the
+original bare-insertion rule rather than adding mutable Session scope.
+
+### Wire shapes and operation arity
+
+`connect` returns `session_id`, `levels` (ordered `{name, label}` entries),
+`default_path` (a JSON string array), and `dialect`. `refreshSchema` returns `ok`,
+`levels`, and `default_path`. Requests carry `path`; `getTableSchema` also carries
+a literal `name`. Metadata reports its path in `scope`. Container entries have
+`name` and `internal`; table entries have `name` and `sql_identifier`.
+`listSchemas` takes a one-component leading path. SQLite has no second level and
+returns an empty list; clients walk its first-level containers directly to tables.
+Table lookup, listing, ERD, and completion take a full declared path.
+
 ### ADR relationship
 
-No ADR is superseded. [ADR-0001](../../../docs/adr/0001-sync-core-for-phase-1.md) scopes
+No ADR is superseded. [ADR-0001](../../../../docs/adr/0001-sync-core-for-phase-1.md) scopes
 the synchronous core and is untouched — nothing here makes the core concurrent or adds
-background work. This change is a protocol and data-model decision, and its rationale
-lives in this document rather than in a new ADR; if server-held scope is ever revisited
-under a multi-client topology, that reversal would warrant an ADR because it would
-contradict the reasoning above.
+background work. The enduring protocol and data-model decision is recorded in
+[ADR-0002](../../../../docs/adr/0002-explicit-scope-paths.md), following the development
+workflow requirement to retain significant architecture decisions. Revisiting
+server-held scope would require superseding that decision.
 
 ## Risks / Trade-offs
 
@@ -173,17 +194,17 @@ contradict the reasoning above.
   metadata call carries its own explicit Scope Path, so nothing resolves against stale
   hierarchy; only the level list and default scope go stale, and the trigger is the
   user's own statement. Automatic invalidation is
-  [043](../../../docs/backlog/043-ddl-cache-invalidation.md), which this change hands the
+  [043](../../../../docs/backlog/043-ddl-cache-invalidation.md), which this change hands the
   extra consequence. Classifying schema-changing SQL inside this change would be scope
   creep into a decision that needs its own design.
 - **Wordier client calls; the client must track scope per buffer and tree node** →
-  Backlog [028](../../../docs/backlog/028-active-session-indicator.md) already has the
+  Backlog [028](../../../../docs/backlog/028-active-session-indicator.md) already has the
   client tracking per-buffer Session state, so Scope Path is an increment on an existing
   structure rather than a new one.
 - **Positional path components read worse than named fields** → Accepted deliberately.
   The level declaration supplies names for display, and the alternative cannot represent
   SQLite honestly. Tests assert against declared level names, not bare indices.
-- **Large simultaneous break: 6 of 13 RPCs, ~103 test call sites across 9 files** →
+- **Large simultaneous break: 8 of 13 RPCs, ~103 test call sites across 9 files** →
   Sequenced in [tasks.md](tasks.md) so the Adapter interface and registry land before the
   protocol surface, keeping the suite meaningful between slices rather than red
   throughout. Coverage must stay at or above 85%.
@@ -203,8 +224,9 @@ being removed. A client speaking the old surface receives `INVALID_REQUEST` on i
 metadata call rather than silently wrong data, which is the intended failure mode.
 
 Ownership split, per AGENTS.md: this change owns server behavior and the DSP contract.
-`dbridge.nvim` owns its explorer, completion source, and per-buffer state, and needs its
-own linked change in that repository — nothing here authorizes editing it. Compatibility
+`dbridge.nvim` owns its explorer, completion source, and per-buffer state, and has its
+own linked [change](../../../../../dbridge.nvim/openspec/changes/archive/2026-09-24-adopt-explicit-scope-paths/proposal.md)
+in that repository, explicitly authorized by the user for this migration. Compatibility
 is defined by the server's declared levels: the client reads levels and the default
 Scope Path from `connect`, sends a Scope Path of matching arity on every metadata call,
 re-reads both from `refreshSchema`, and stops reading `.database`/`.schema`.
