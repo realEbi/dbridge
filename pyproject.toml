@@ -33,7 +33,7 @@ dependencies = [
 dbridge = "dbridge.server:main"
 
 [project.optional-dependencies]
-mysql = ["pymysql"]
+mysql = ["aiomysql>=0.3.2,<0.4", "cryptography"]
 postgres = ["psycopg2"]
 snowflake = ["snowflake-connector-python"]
 
@@ -59,10 +59,15 @@ addopts = "-ra"
 # Measure the shipped server only. Test modules are excluded deliberately: a
 # test file scores near 100% by construction and tells you nothing about
 # dbridge. Parked adapters are excluded while they remain unregistered and
-# their drivers optional; porting one out of _parked/ re-includes it.
+# their drivers optional. Optional remote adapters have local real-server suites;
+# their loaders remain measured even when the adapter module is excluded.
 source = ["src/dbridge"]
 branch = true
-omit = ["src/dbridge/__about__.py", "src/dbridge/adapters/_parked/*"]
+omit = [
+  "src/dbridge/__about__.py",
+  "src/dbridge/adapters/_parked/*",
+  "src/dbridge/adapters/mysql.py",
+]
 
 [tool.coverage.paths]
 dbridge = ["src/dbridge", "*/dbridge/src/dbridge"]

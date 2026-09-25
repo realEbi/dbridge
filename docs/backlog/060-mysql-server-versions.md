@@ -24,7 +24,7 @@ difference in kill semantics, key metadata, or authentication.
 
 ## Notes and references
 
-Change: [add-mysql-adapter](../../openspec/changes/add-mysql-adapter/proposal.md).
+Change: [add-mysql-adapter](../../openspec/changes/archive/2026-09-25-add-mysql-adapter/proposal.md).
 Its design records the spike evidence and the kill-path decisions. The local
 suite runs with `make test-mysql`; the compose server's image tag selects the
 version. CI does not run MySQL.

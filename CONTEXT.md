@@ -23,9 +23,14 @@ _Avoid_: connection (ambiguous — say Profile for the config, Session for the l
 **Lane**:
 A dedicated daemon thread and FIFO job queue owned by a thread-backed Adapter.
 A Lane runs blocking driver operations on their owning thread. SQLite has one
-Lane per Session; DuckDB has separate query and metadata Lanes. Lanes are an
-implementation choice for blocking drivers, not a requirement on native async
-Adapters.
+Lane per Session; DuckDB has separate query and metadata Lanes. MySQL uses native
+async Channels instead. Lanes are an implementation choice for blocking drivers,
+not a requirement on native async Adapters.
+
+**Channel**:
+A native async Adapter's serialized driver connection. MySQL owns separate query
+and metadata Channels per Session; each holds a FIFO lock and shields driver I/O
+from task cancellation. Its separate control connection interrupts server work.
 
 **Scope Path**:
 An ordered sequence of nonempty literal container names locating metadata within an
@@ -39,8 +44,9 @@ _Avoid_: active scope, current scope, fqn, database/schema pair, SELECT scope
 **Scope Level**:
 One container tier in an Adapter's ordered hierarchy, declared with a stable `name`
 and a display `label`. SQLite declares a namespace level; DuckDB declares catalog
-then schema levels. Clients use these declarations to interpret Scope Paths and
-render hierarchy without inferring its shape from the SQL dialect.
+then schema levels; MySQL declares one database level. Clients use these
+declarations to interpret Scope Paths and render hierarchy without inferring its
+shape from the SQL dialect.
 _Avoid_: fixed database tier, fixed schema tier, dialect hierarchy
 
 **Transport**:

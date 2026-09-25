@@ -140,22 +140,28 @@ paired worktree and PR for each owner; integration checks must use those worktre
 - Transport, Dispatcher, and Core Engine coordinate work on one asyncio loop.
   Database-touching Adapter methods are async; driver calls and cancellation stay
   inside Adapters. SQLite uses one Lane, DuckDB query and metadata Lanes. Preserve
-  per-Session execute order and cancellation isolation. ADR-0003 records the
-  provisional contract, which a native async MySQL driver must validate.
-- Keep driver imports in Adapters. Only SQLite and DuckDB are currently registered;
-  parked adapters must not become load-time dependencies.
+  per-Session execute order and cancellation isolation. MySQL uses native async
+  query and metadata Channels with shielded driver I/O; ADR-0003's contract is
+  validated for that driver, and ADR-0004 records its interruption design.
+- Keep driver imports in Adapters. SQLite, DuckDB, and optional MySQL are registered;
+  MySQL's extra is loaded lazily, and parked adapters must not become load-time
+  dependencies.
 - DuckDB execution uses native fetch methods without pandas.
 - Keep stdout reserved for protocol frames. Use logging for diagnostics.
 - Preserve byte-based `Content-Length` framing and UTF-8 cursor offsets.
 - Preserve result column order, explicit truncation warnings, and Profile/Session
-  separation. Query execution fetches at most `max_rows + 1` rows through the
+  separation. Query execution retains at most `max_rows + 1` rows through the
   Adapter before the executor truncates; release capped statements before replying.
+  MySQL `CALL`, multi-statement, and unclassified requests retain at most that cap
+  while draining remaining rows to preserve later effects.
 - Clients manage Profiles through RPCs. Tests and examples use isolated temporary
   data/configuration and clean up subprocesses.
 - Prefer small working slices and meaningful behavior verification. Test order is
   a per-change choice; match checks to risk and avoid tests for prose-only edits.
 - Coverage of `src/dbridge` must stay at or above 85%; `pytest --cov` fails below
-  it, and the same gate runs on pull requests. Restore coverage rather than
+  it, and the same gate runs on pull requests. Parked modules and the optional
+  MySQL module are omitted; its loader remains measured and its real-server suite
+  runs locally with `make test-mysql`. Restore coverage rather than
   lowering the threshold, and write tests that assert behavior — a test added
   only to execute a line is a liability. Record dead code and defects found while
   testing as backlog items instead of covering or fixing them in an unrelated

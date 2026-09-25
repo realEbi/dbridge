@@ -12,7 +12,8 @@ container hierarchy instead of assuming a fixed database/schema pair.
 
 An Adapter SHALL declare its Scope Levels: an ordered list of the container tiers
 that locate a table, each with a stable name and a client-facing label. SQLite SHALL
-declare one level; DuckDB SHALL declare two. `dbridge/connect` SHALL return that
+declare one level; DuckDB SHALL declare two; MySQL SHALL declare one level, named
+`database`. `dbridge/connect` SHALL return that
 declaration together with a default Scope Path valid for the new Session, so a client
 can issue scoped operations without a discovery request. `dbridge/refreshSchema`
 SHALL return the current declaration and default Scope Path. The declaration returned
@@ -32,6 +33,12 @@ its hierarchy.
 - **WHEN** a client connects to a DuckDB Profile
 - **THEN** the response declares two ordered Scope Levels, catalog before schema
 - **AND** the default Scope Path names the Session's current catalog and current schema
+
+#### Scenario: MySQL declares a single database level
+- **WHEN** a client connects to a MySQL Profile
+- **THEN** the response declares exactly one Scope Level named `database`
+- **AND** the default Scope Path has one component naming a database the Session can
+  list tables in
 
 #### Scenario: Hierarchy grows while the Session is live
 - **WHEN** a DuckDB Session attaches a second catalog and the client calls
