@@ -17,8 +17,8 @@ frames. An outstanding id cannot be reused until its reply is written.
 Client stdin --> reader thread --> asyncio loop: Dispatcher request tasks
                                       --> Engine / SchemaRegistry / completion
                                             --> async DBAdapter
-                                                  --> Adapter-owned lanes
-Client stdout <-- complete replies on the loop     --> sqlite3 or duckdb
+                                                  --> Adapter-owned Lanes / Channels
+Client stdout <-- complete replies on the loop     --> sqlite3, duckdb, or aiomysql
 ```
 
 A Lane is one daemon thread and FIFO job queue owning a driver connection. SQLite
@@ -37,16 +37,28 @@ Session-local state without accessing the busy query connection. Snapshot
 discovery after SQL has finished is protected from late cancellation, so it
 cannot replace an already-established query outcome.
 
+MySQL uses two native async Channels, one for queries and one for metadata. Each
+Channel owns a connection, a FIFO asyncio lock, and a shielded driver reader task.
+Cancelling a caller never cancels driver I/O. A separate control connection sends
+`KILL QUERY` to the Channel's server thread id, with the Channel lock held until
+the kill and reader both finish. A cancel while queued simply leaves the queue.
+The control connection opens eagerly and is shared per `(host, port, user)` with
+reference counting and serialized kill commands. It closes after the last Session
+disconnects and reopens after a failure. If a kill cannot be confirmed, the
+affected Channel reconnects and logs the loss of Session state.
+
 Database-touching Adapter methods are coroutines; `scope_levels`, `dialect_name`,
 and `get_keywords` remain synchronous declarations. Cache hits, completion parsing,
 and small Profile file operations run directly on the loop. A cache hit does not
 wait for database work. The Core Engine owns no driver threads or interrupts.
 
-`$/cancelRequest` cancels the task registered under its JSON-RPC id. Adapter lanes
+`$/cancelRequest` cancels the task registered under its JSON-RPC id. Adapter Lanes and Channels
 remove queued work or interrupt the currently running job while holding the same
 lock used to change the current job, so a late cancel cannot reach the next job.
-Interrupted work replies with `QUERY_CANCELLED`; completed or non-interruptible
-work keeps its normal result. Cancels for unknown/completed ids or malformed
+Interrupted work replies with `QUERY_CANCELLED`; a result that reached the Adapter
+before interruption was issued keeps its normal result. For MySQL, a result
+arriving after interruption was issued remains cancelled even if MySQL reports
+normal completion. Cancels for unknown/completed ids or malformed
 params are ignored. The Session remains usable after cancellation; effects of
 earlier completed statements are retained.
 
@@ -62,6 +74,9 @@ the server logs incomplete cleanup, abandons its daemon lanes, releases awaiters
 and exits successfully. Driver connection cleanup is attempted if that worker
 later returns; it cannot be guaranteed for a driver that never returns. Replies
 produced during shutdown are written only while the output pipe remains usable.
+MySQL abandonment writes complete `KILL <thread id>` packets to the control
+connection without awaiting acknowledgements, releases awaiters, and closes
+sockets; closing the client socket alone would leave server work running.
 
 A complete body containing invalid UTF-8 JSON returns `PARSE_ERROR` with a null id,
 and the next frame is still accepted. A truncated body or invalid/missing
@@ -69,8 +84,9 @@ and the next frame is still accepted. A truncated body or invalid/missing
 count encoded bytes, and diagnostics stay off stdout.
 
 [ADR-0003](adr/0003-async-orchestration.md) supersedes the Phase 1 synchronous
-execution decision in [ADR-0001](adr/0001-sync-core-for-phase-1.md). The async Adapter
-contract remains provisional until a native async MySQL driver validates it.
+execution decision in [ADR-0001](adr/0001-sync-core-for-phase-1.md). Its async Adapter
+contract is validated by MySQL's native async driver; [ADR-0004](adr/0004-mysql-interruption.md)
+records that Adapter's interruption and deployment decisions.
 Implementation lives in [Transport](../src/dbridge/protocol/transport/stdio.py),
 [Dispatcher](../src/dbridge/protocol/handlers.py), [Engine](../src/dbridge/core/engine.py),
 and the shared [Lane](../src/dbridge/adapters/lane.py) and
@@ -124,13 +140,19 @@ it through a temporary file; crash-safe persistence remains
 
 ## Queries and adapters
 
-Only SQLite and DuckDB are registered. The MySQL, PostgreSQL, and Snowflake code
-in `adapters/_parked/` uses an older interface and is neither registered nor
-imported by the registry. DuckDB execution uses native fetch methods without
-pandas; this does not imply pandas has been removed from package dependencies.
+SQLite, DuckDB, and MySQL are registered. MySQL is optional: the registry loads
+[its module](../src/dbridge/adapters/mysql.py) only for a MySQL connect. The
+`dbridge[mysql]` extra installs aiomysql and cryptography. If either is missing,
+the loader raises an Adapter error naming the extra, mapped to
+`ADAPTER_NOT_SUPPORTED`; server startup and other Adapters keep working.
+PostgreSQL and Snowflake code in `adapters/_parked/` uses an older interface and
+is neither registered nor imported by the registry. DuckDB execution uses native
+fetch methods without pandas; this does not imply pandas has been removed from
+package dependencies.
 
-The executor asks both shipped Adapters for at most `max_rows + 1` rows, using
-native bounded fetches on the query Lane. The extra row detects truncation: the
+The executor asks each Adapter to retain at most `max_rows + 1` rows, using
+native bounded fetches on SQLite/DuckDB query Lanes and an unbuffered MySQL cursor.
+The extra row detects truncation: the
 executor returns at most `max_rows` rows (default 100), sets `row_count` to the
 returned count, and adds `result truncated to <max_rows> rows` only when the
 result exceeds the cap. A result exactly at the cap has no truncation warning.
@@ -139,15 +161,29 @@ Results contain ordered `columns`, positional `rows`, `row_count`,
 
 Capped statements release their database resources before the reply. SQLite
 closes the cursor in `finally`, releasing its read lock; DuckDB's existing Session
-metadata snapshot queries replace the pending result. Writes with `RETURNING`
+metadata snapshot queries replace the pending result. MySQL classifies SQL with
+sqlglot's MySQL dialect. For a single parsed query, reaching the cap uses the
+control connection's kill path, discards in-flight result bytes, and clears the
+driver's unbuffered state before reuse. `CALL`, multi-statement, and unclassified
+requests drain remaining rows and result sets while retaining only the cap; this
+preserves later effects but reply time grows with discarded rows. MySQL returns
+the last result set with columns. Writes with `RETURNING`
 apply every modification even when their returned rows are capped. The cap bounds
-rows read into Python, not work the database performs before producing its first
+retained rows, not work the database performs before producing its first
 row. Sorts and aggregates over large inputs still run to completion unless
 cancelled, and database-internal memory use is not bounded by this fetch limit.
 
-SQLite connects in autocommit mode so writes survive disconnect/reconnect. The
-protocol exposes no explicit begin/commit/rollback methods. Streaming, server-side cursors, and server-to-client notifications remain
+SQLite and MySQL connect in autocommit mode so writes survive disconnect/reconnect.
+The protocol exposes no explicit begin/commit/rollback methods. Streaming,
+protocol-visible result cursors, and server-to-client notifications remain
 unimplemented. Request cancellation is described above.
+
+Only MySQL 8.4 is verified. MySQL proxies and load balancers are unsupported:
+the control connection must reach the same server as its target thread id.
+MySQL temporary tables remain queryable on their Session but are absent from
+metadata listings. Result serialization does not convert driver values such as
+`Decimal`, date/time, or bytes; the shared DuckDB/MySQL reply limitation remains
+[backlog 061](backlog/061-non-json-result-values.md).
 
 Execution accepts SQL without a Scope Path and retains the database engine's SQL
 resolution rules. Sending a metadata Scope Path does not change the driver's
@@ -157,18 +193,27 @@ derived from the live Adapter, rather than an implicit scope for later requests.
 ## Schema browsing and completion
 
 Adapters declare ordered Scope Levels with stable names and display labels:
-SQLite has one namespace level, DuckDB has catalog then schema levels. A full
-Scope Path has one literal component per level. SQLite therefore reports
+SQLite has one namespace level, DuckDB has catalog then schema levels, and MySQL
+has one database level. A full Scope Path has one literal component per level.
+SQLite therefore reports
 `["main"]`, eliminating the old redundant `main/main` hierarchy. Attached SQLite
 namespaces and DuckDB catalogs are first-level containers. `listDatabases`
 enumerates this first level without a path. `listSchemas` takes a one-component
-path and returns the next level; for SQLite it returns an empty list.
+path and returns the next level; for SQLite and MySQL it returns an empty list.
+
+MySQL reads databases, base tables, views, columns, and keys through bound
+`information_schema` queries on the metadata Channel. The query Channel publishes
+its `SELECT DATABASE()` snapshot after every execute, including cancellation,
+without making default-scope reads wait behind a query. With no selected database,
+the default is the first non-internal database in name order, then
+`information_schema` if none is available. `USE` is reflected by the next refresh.
 
 Container entries carry `name` and `internal`, retaining engine-internal entries
 for clients to present as appropriate. SQLite marks its `temp` namespace when
 present. DuckDB marks `system` and `temp` catalogs, their schemas, and
 `information_schema`/`pg_catalog` in user catalogs. User catalogs and their
-`main` schemas remain unmarked.
+`main` schemas remain unmarked. MySQL marks `information_schema`, `mysql`,
+`performance_schema`, and `sys` as internal.
 
 Each Session has an in-memory TTL cache (default 60 seconds) covering database,
 schema, and table listings plus table metadata. Schema/table listings are keyed by
@@ -188,11 +233,12 @@ and reports `scope` with the Adapter's exact arity. Legacy `fqn`, `table`,
 `database`, and `schema` inputs are rejected on scoped metadata requests. Paths
 must be arrays of nonempty strings with the operation's required arity; invalid
 paths return `INVALID_REQUEST` without terminating the server. Each identifier
-quotes the path components in order followed by the table name, doubling embedded
-double quotes. Literal dots remain part of a component. Unresolved tables return
+quotes the path components in order followed by the table name. SQLite/DuckDB
+double embedded double quotes; MySQL doubles embedded backticks inside backtick
+quotes. Literal dots remain part of a component. Unresolved tables return
 no columns and a null identifier. Metadata failures remain errors.
 
-SQLite and DuckDB report column metadata and ordered primary/foreign-key
+SQLite, DuckDB, and MySQL report column metadata and ordered primary/foreign-key
 constraints through the [table-keys contract](../openspec/specs/table-keys/spec.md).
 `primary_key` is one named-or-unnamed constraint or null; each `foreign_keys`
 entry preserves paired columns and the referenced table's full Scope Path.
@@ -202,7 +248,10 @@ engine-reported names and ordered columns from `duckdb_constraints()` on its
 metadata Lane. Temporary DuckDB keys come from the query connection's existing
 metadata snapshot, alongside temporary columns. Both engines currently reference
 tables in the child's namespace; DuckDB 1.1.3 does not support cross-schema or
-cross-catalog foreign keys. Unique, check, and not-null constraints are not exposed.
+cross-catalog foreign keys. MySQL reports full column types, nullability, defaults,
+and comments in column order. Its primary key is named `PRIMARY`; grouped foreign
+keys preserve key order and can name a different database in `referenced_path`.
+Unique, check, and not-null constraints are not exposed.
 `getERD` requires a
 full Scope Path and returns `{"status": "not_implemented", "tables": [...]}`
 with that path's table entries.
@@ -255,5 +304,8 @@ Tests cover [stdio framing](../tests/protocol/test_framing.py),
 [cache behavior](../tests/core/test_schema_registry.py), and
 [adapters](../tests/adapters/). Test presence does not imply every edge case is
 covered. The [manual guide](manual-testing-guide.md) covers interactive checks
-against reusable sample databases;
+against reusable sample databases, including the local MySQL 8.4 fixture.
+The optional [MySQL suite](../tests/adapters/mysql/) exercises a real server only
+when configured; CI skips it and omits the Adapter module from coverage while
+measuring the registry's missing-extra behavior. The
 [development instructions](development.md) list the verification commands.

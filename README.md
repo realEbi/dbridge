@@ -20,6 +20,7 @@ and the separate [roadmap](docs/roadmap.md) for the planned evolution.
 - [Installation](#installation)
 - [Run the Server](#run-the-server)
 - [Profiles](#profiles)
+- [MySQL](#mysql)
 - [JSON-RPC Methods](#json-rpc-methods)
 - [Development](#development)
 - [Documentation](#documentation)
@@ -88,6 +89,78 @@ create-or-replace behavior. Saving or renaming a Profile does not change any liv
 Session. The file update still uses an in-place write; interrupted writes are a
 [separate known limitation](docs/backlog/059-crash-safe-profile-writes.md).
 
+## MySQL
+
+Install the optional MySQL support in the environment that runs the server:
+
+```console
+pip install 'dbridge[mysql]'
+```
+
+From a source checkout, use `uv run --extra mysql python -m dbridge.server`.
+Without the extra, a MySQL connect returns `ADAPTER_NOT_SUPPORTED` with an install
+hint; SQLite and DuckDB remain available.
+
+Create a Profile through `dbridge/saveProfile` with these parameters, replacing
+the example credentials:
+
+```json
+{
+  "name": "shop",
+  "adapter": "mysql",
+  "config": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "shop_reader",
+    "password": "replace-me",
+    "database": "shop"
+  }
+}
+```
+
+Then connect with `{"profile": "shop"}`. Inline connect also accepts the same
+`adapter` and `config` fields.
+
+| Config key | Default | Meaning |
+|---|---|---|
+| `host` | `127.0.0.1` | MySQL server host |
+| `port` | `3306` | Port, as an integer or numeric string |
+| `user` | Required | MySQL account |
+| `password` | Omitted | Account password |
+| `database` | Omitted | Initial database |
+
+Sessions use autocommit and `utf8mb4`; completed writes survive disconnect.
+Missing users, unreachable servers, and refused logins return `CONNECTION_FAILED`.
+Connect reports dialect `mysql`, levels `[{"name":"database","label":"Database"}]`,
+and a one-component `default_path`. With no current database, the default is the
+first non-internal database in name order, or `information_schema` if none exists.
+After executing `USE other`, refresh to receive the new default path.
+
+Only **MySQL 8.4 is verified**. Other MySQL versions and MariaDB are unverified;
+see [backlog 060](docs/backlog/060-mysql-server-versions.md). Connect directly to
+one MySQL server: **proxies and load balancers are unsupported**. Cancellation
+and capped-result release target a server thread id through a separate control
+connection. Routing that connection to a different backend can interrupt an
+unrelated statement.
+
+The remaining limits are:
+
+- Browsing lists base tables and views, but not `TEMPORARY` tables.
+- A capped single parsed query stops early. Capped `CALL` and multi-statement
+  requests read and discard remaining rows so every later step completes. Memory
+  stays bounded, but reply time grows with the discarded rows. SQL that cannot be
+  classified safely also drains. The reply contains the last result set with
+  columns.
+- Once interruption is issued, the request replies `QUERY_CANCELLED`, even when
+  its result arrives just after the kill. A result received by the Adapter before
+  interruption keeps its normal reply. Cancellation preserves prior statement
+  effects, user variables, temporary tables, and the selected database. If a kill
+  cannot be confirmed, the Adapter logs a reconnect that loses that Session state.
+- Result values such as `Decimal`, date/time objects, and binary data are not yet
+  converted for JSON replies. Such queries can fail to deliver a reply; this
+  shared limitation with DuckDB is tracked in
+  [backlog 061](docs/backlog/061-non-json-result-values.md).
+
 ## JSON-RPC Methods
 
 All requests follow JSON-RPC 2.0 with LSP framing (`Content-Length` counts UTF-8
@@ -100,7 +173,7 @@ body bytes). Replies may arrive out of request order; clients correlate them by
 | `dbridge/disconnect` | `session_id` | Cancel the Session's outstanding work, then close it → `{ok}` |
 | `dbridge/execute` | `session_id`, `sql` | Run SQL → `{columns, rows, row_count, …}` |
 | `dbridge/listDatabases` | `session_id` | First-level containers → `[{name, internal}]`; rejects `path` |
-| `dbridge/listSchemas` | `session_id`, `path` | Child containers under a one-component path → `[{name, internal}]`; SQLite returns `[]` |
+| `dbridge/listSchemas` | `session_id`, `path` | Child containers under a one-component path → `[{name, internal}]`; SQLite and MySQL return `[]` |
 | `dbridge/listTables` | `session_id`, `path` | Tables in a full path → `[{name, sql_identifier}]` |
 | `dbridge/getTableSchema` | `session_id`, `path`, `name` | `{name, scope, columns, primary_key, foreign_keys, sql_identifier}` |
 | `dbridge/complete` | `session_id`, `path`, `sql`, `position?` | SQL completion items; `position` is the cursor's UTF-8 byte offset into `sql` (default: end) |
@@ -111,7 +184,7 @@ body bytes). Replies may arrive out of request order; clients correlate them by
 | `dbridge/deleteProfile` | `name` | Remove a profile → `{ok}` (false if absent) |
 | `$/cancelRequest` | `id` | Notification: cancel an outstanding request; no reply to the notification |
 
-**Supported adapters:** `sqlite`, `duckdb`
+**Supported adapters:** `sqlite`, `duckdb`, `mysql` (requires the optional extra)
 
 `connect` reports the hierarchy before the first scoped request. For SQLite, its
 result has this shape:
@@ -133,8 +206,8 @@ returns the authoritative current `levels` and `default_path`, plus `ok: true`.
 
 `path` is a required array of nonempty literal strings. Table listing, table
 metadata, ERD, and completion require a full path: one component for SQLite and
-two for DuckDB. `listSchemas` takes one first-level component; SQLite has no
-second tier. Missing paths, malformed components, and wrong arity return
+MySQL, two for DuckDB. `listSchemas` takes one first-level component; SQLite and
+MySQL have no second tier. Missing paths, malformed components, and wrong arity return
 `INVALID_REQUEST`. `listDatabases` accepts no path. Containers are returned with
 an `internal` boolean; internal namespaces/catalogs and schemas remain visible.
 
@@ -162,9 +235,11 @@ are:
 }
 ```
 
-Both Adapters preserve constraint column order and positional foreign-key pairs.
-DuckDB supplies engine-reported names; SQLite reports null names. A table without
-a primary key reports `primary_key: null`, and one without foreign keys reports
+All Adapters preserve constraint column order and positional foreign-key pairs.
+DuckDB and MySQL supply engine-reported names; MySQL names the primary key
+`PRIMARY`, and SQLite reports null names. MySQL foreign keys can reference another
+database through their `referenced_path`. A table without a primary key reports
+`primary_key: null`, and one without foreign keys reports
 `foreign_keys: []`. SQLite shorthand references resolve the parent's primary key;
 a missing parent or one without a primary key yields `referenced_columns: []`.
 This constraint shape is a breaking DSP change; key consumers must migrate with
@@ -172,8 +247,9 @@ the server. See the [table-keys contract](openspec/specs/table-keys/spec.md).
 
 Both `listTables` entries and resolved `getTableSchema` results include an
 executable `sql_identifier`. It quotes every path component followed by the table
-name, doubling embedded double quotes: SQLite uses namespace/table and DuckDB
-uses catalog/schema/table. An unresolved table returns no columns and
+name: SQLite uses namespace/table and DuckDB uses catalog/schema/table, with
+double quotes doubled inside each component. MySQL uses database/table with
+backticks, doubling embedded backticks. An unresolved table returns no columns and
 `sql_identifier: null`; clients should not generate a query from that result.
 All four metadata listings/lookups share the Session cache. Refresh after DDL or
 `ATTACH` to invalidate cached listings and metadata and re-read the hierarchy;
@@ -204,8 +280,8 @@ outer correlated references remain deferred. See the
 ### Concurrent requests and cancellation
 
 Different Sessions can run queries concurrently. On one Session, `execute`
-requests keep arrival order. DuckDB can answer metadata and completion while a
-query runs on that Session; SQLite queues database work behind the query, but
+requests keep arrival order. DuckDB and MySQL can answer metadata and completion
+while a query runs on that Session; SQLite queues database work behind the query, but
 cached completion remains available. Wait for an execute reply before requesting
 metadata that must reflect its changes. A refresh prevents older in-flight
 introspection from repopulating the cache.
@@ -246,7 +322,7 @@ Errors use the JSON-RPC `error` object. The main codes are:
 | -32002 | `QUERY_ERROR` | The Adapter could not execute SQL or read metadata |
 | -32003 | `SESSION_NOT_FOUND` | Unknown or closing Session |
 | -32004 | `QUERY_CANCELLED` | The named request was cancelled |
-| -32005 | `ADAPTER_NOT_SUPPORTED` | The requested Adapter is not registered |
+| -32005 | `ADAPTER_NOT_SUPPORTED` | The requested Adapter is not registered or its optional extra is missing |
 | -32006 | `PROFILE_NOT_FOUND` | The named Profile does not exist |
 | -32007 | `PROFILE_ALREADY_EXISTS` | A Profile rename would replace another Profile |
 

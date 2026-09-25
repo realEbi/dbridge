@@ -85,6 +85,7 @@ Relevant source/tests, dependencies, and questions to resolve before planning.
 - [057 - Distinguish a JSON null body from end of input](057-json-null-frame-ends-input.md)
 - [058 - Reject negative query row caps](058-negative-max-rows.md)
 - [061 - Reply to queries that return non-JSON values](061-non-json-result-values.md)
+- [062 - Investigate an intermittent DuckDB metadata timeout](062-duckdb-metadata-timeout.md)
 
 ## Adapters and metadata
 

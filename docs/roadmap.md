@@ -18,9 +18,10 @@ database-specific behavior in Adapters, and keep presentation in clients.
 
 Async orchestration now supports responsive, concurrent work and cancellation
 through the stdio client path. [ADR-0003](adr/0003-async-orchestration.md) records
-the execution model and provisional async Adapter contract. Query fetching now
-stops one row past the response cap; delivery of rows beyond that cap remains
-future work.
+the execution model and async Adapter contract, now validated with native async
+MySQL. Query fetching retains one row past the response cap; MySQL `CALL` and
+multi-statement requests still drain remaining rows to preserve later effects.
+Delivery of rows beyond that cap remains future work.
 
 dbridge remains a query and introspection tool. ORM/query-builder behavior,
 database migrations, database permission administration, and bulk ETL are outside
@@ -73,9 +74,9 @@ the remaining backlog items retain their own scope and priority.
 
 The [concurrent execution model](backlog/012-concurrent-execution.md) and server
 [cancellation](backlog/009-query-cancellation.md) are implemented: one asyncio loop
-coordinates Adapter-owned lanes, different Sessions run concurrently, DuckDB
-metadata can overlap a query, and request ids correlate replies in completion
-order. Disconnect drains Session work; shutdown has a bounded grace period with
+coordinates Adapter-owned Lanes and native async Channels, different Sessions run
+concurrently, DuckDB and MySQL metadata can overlap a query, and request ids
+correlate replies in completion order. Disconnect drains Session work; shutdown has a bounded grace period with
 explicit abandonment for a driver that cannot stop. The linked
 [client change](https://github.com/realEbi/dbridge.nvim/tree/dbridge-2.0/openspec/changes/archive/2026-09-24-cancel-outstanding-query)
 owns the editor cancel command and shared flow verification.
@@ -101,14 +102,19 @@ execution decision; further changes must account for cancellation and ordering.
 
 ## 3. Broader database support
 
-Bring [MySQL](backlog/019-mysql-adapter.md),
-[PostgreSQL](backlog/020-postgres-adapter.md), and
-[Snowflake](backlog/021-snowflake-adapter.md) onto the supported Adapter interface;
-evaluate [BigQuery](backlog/042-bigquery-adapter.md) separately. Each adapter needs
-real integration evidence, clear type/metadata limits, and dependency isolation.
-MySQL will use a native async driver and validate ADR-0003's provisional async
-Adapter cancellation contract before that contract is considered proven for
-native drivers.
+[MySQL](backlog/019-mysql-adapter.md) is shipped as an optional Adapter using
+aiomysql, with real MySQL 8.4 execution, metadata, cancellation, row-cap, and
+cleanup verification. It validates ADR-0003's contract for a native async driver;
+[ADR-0004](adr/0004-mysql-interruption.md) records the shared control connection
+and interruption design. Other server versions remain
+[deferred](backlog/060-mysql-server-versions.md), as does the shared
+[non-JSON result-value limitation](backlog/061-non-json-result-values.md).
+
+[PostgreSQL](backlog/020-postgres-adapter.md) and
+[Snowflake](backlog/021-snowflake-adapter.md) remain to be ported onto the supported
+Adapter interface. Evaluate [BigQuery](backlog/042-bigquery-adapter.md) separately.
+Each adapter needs real integration evidence, clear type/metadata limits, and
+dependency isolation. This milestone is not complete.
 
 Extend metadata where useful through [indexes](backlog/047-index-introspection.md)
 and [functions](backlog/044-function-completion.md). Consider

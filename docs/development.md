@@ -26,6 +26,9 @@ make check                                  # type and lint checks
 make test                                   # automated suite
 make test-cov                               # suite with the 85% coverage gate
 make test PYTEST_ARGS="tests/adapters -q"    # focused run
+make mysql-up                               # start and seed local MySQL 8.4
+make test-mysql                             # real-server suite, mysql extra installed
+make mysql-down                             # remove the local test server and data
 ```
 
 `manual-prepare` syncs dependencies through `uv run` and replaces
@@ -42,14 +45,64 @@ uv run ruff check src/dbridge tests
 
 `make check` runs mypy and Ruff over `src/dbridge` and `tests`. Mypy excludes
 `src/dbridge/adapters/_parked/` from recursive discovery while those adapters are
-unregistered legacy ports; no missing-driver ignores apply to shipped modules.
-Moving a supported port out of that directory includes it automatically. Ruff
-still checks parked source without importing its optional drivers.
+unregistered legacy ports. Moving a supported port out of that directory includes
+it automatically. MySQL's aiomysql import has scoped `import-untyped` and
+`import-not-found` ignores because the optional driver provides no type stubs;
+the Adapter itself remains type checked. Ruff still checks parked source without
+importing its optional drivers.
 
 Use focused tests while changing behavior and run the server suite for runtime
 changes. `pytest-asyncio` runs async tests and fixtures in auto mode with a loop
 per test. Await Adapter/Engine database methods and close every Session in fixture
 teardown; Profile operations and Adapter declarations remain synchronous.
+
+### Local MySQL verification
+
+Install Docker with Compose support and start its daemon. From the repository
+root, `make mysql-up` starts [the MySQL 8.4 fixture](../tests/adapters/mysql/compose.yaml),
+waits for it to be healthy, and checks the seeded `million_rows` table contains
+1,000,000 rows. Then run `make test-mysql`. It installs the `mysql` extra and runs
+`tests/adapters/mysql/` against the local server. The fixtures use isolated test
+objects and close their Sessions and observer connections.
+
+The compose server uses port `33084` on `127.0.0.1`; its credentials and data are
+disposable test fixtures. `make mysql-down` removes the container and its data.
+The primary test account has no `PROCESS`, `CONNECTION_ADMIN`, or `SUPER`
+privileges. A second account checks control-connection isolation, and an observer
+account reads process lists and statement history.
+
+The suite accepts these environment variables:
+
+| Variable | Default |
+|---|---|
+| `DBRIDGE_TEST_MYSQL_HOST` | `127.0.0.1` |
+| `DBRIDGE_TEST_MYSQL_PORT` | `33084` |
+| `DBRIDGE_TEST_MYSQL_USER` | `dbridge` |
+| `DBRIDGE_TEST_MYSQL_PASSWORD` | `dbridge` |
+| `DBRIDGE_TEST_MYSQL_DATABASE` | `dbridge_test` |
+| `DBRIDGE_TEST_MYSQL_SECOND_USER` | `dbridge_second` |
+| `DBRIDGE_TEST_MYSQL_SECOND_PASSWORD` | `dbridge_second` |
+| `DBRIDGE_TEST_MYSQL_OBSERVER_USER` | `dbridge_observer` |
+| `DBRIDGE_TEST_MYSQL_OBSERVER_PASSWORD` | `dbridge_observer` |
+
+Without any `DBRIDGE_TEST_MYSQL_*` variable set, ordinary `make test` and
+`make test-cov` skip the MySQL suite. `make test-mysql` sets the host and port
+defaults explicitly to enable it. To use a different disposable server, provide
+the variables above and equivalent seed data and observer privileges from
+[seed.sql](../tests/adapters/mysql/seed.sql). For example:
+
+```console
+DBRIDGE_TEST_MYSQL_HOST=127.0.0.1 DBRIDGE_TEST_MYSQL_PORT=33084 \
+  uv run --extra mysql --group test pytest tests/adapters/mysql -q
+```
+
+CI does not run a MySQL service; real-server validation must be run locally and
+reported separately. The registry's optional-import tests run in the ordinary
+suite without a server or the extra. See the
+[manual MySQL checks](manual-testing-guide.md#mysql-checks) for the same fixture
+through a DSP client.
+
+### Execution-model checks
 
 Concurrency ordering tests use Event-gated jobs rather than elapsed-time guesses.
 Real SQLite/DuckDB cancellation tests use explicit timeouts and verify the same
@@ -79,10 +132,15 @@ uv run --group test pytest --cov --cov-report=html    # browsable, htmlcov/index
 
 Measurement covers `src/dbridge` and nothing else. Test modules are excluded
 because a test file scores near 100% by construction and says nothing about the
-server. The parked MySQL, PostgreSQL, and Snowflake adapters are excluded while
-they remain unregistered and their drivers optional; porting one out of
-`adapters/_parked/` brings it back into scope automatically, and that work must
-land with tests that hold the floor.
+server. The parked PostgreSQL and Snowflake adapters are excluded while they
+remain unregistered and their drivers optional. A registered Adapter whose driver
+is part of the default install is measured.
+
+The optional MySQL Adapter module is also omitted: its driver requires a package
+extra and its behavior requires an external database server. Its lazy registry
+loader and missing-extra error handling remain measured. Each optional Adapter
+must have a documented real-server suite that skips unless configured; exclusion
+does not imply its behavior is tested in CI. Run `make test-mysql` for MySQL.
 
 **The suite must stay at or above 85%.** `fail_under = 85` in
 [pyproject.toml](../pyproject.toml) makes a run below it exit non-zero, locally
@@ -427,6 +485,10 @@ suite with coverage on **every** pull request, whatever branch it targets, and o
 coverage falls below the 85% floor, so the threshold is enforced without anyone
 choosing to run it. The matrix sets `fail-fast: false` so both versions always
 report.
+
+MySQL tests skip in this matrix because no MySQL service or test variables are
+configured. Local `make test-mysql` evidence accompanies changes to that Adapter;
+the measured registry code still exercises optional-dependency failures in CI.
 
 The `pull_request` trigger carries no branch filter deliberately. Work integrates
 into `dbridge-2.0` rather than `main`, so a filter on the default branch would

@@ -7,7 +7,7 @@ contract provisional until a native async MySQL driver implements it. A spike on
 8.4.11. All three passed 14 cancellation scenarios once the Adapter supplied the
 safety none of the drivers provides. aiomysql did so with the fewest private
 internals and no driver-defect workarounds. See
-[backlog 019](../../../docs/backlog/019-mysql-adapter.md).
+[backlog 019](../../../../docs/backlog/019-mysql-adapter.md).
 
 ## What Changes
 
@@ -55,12 +55,12 @@ internals and no driver-defect workarounds. See
 
 ## Impact
 
-**Roadmap and backlog.** Resolves [019](../../../docs/backlog/019-mysql-adapter.md),
+**Roadmap and backlog.** Resolves [019](../../../../docs/backlog/019-mysql-adapter.md),
 the MySQL outcome of milestone 3 (*Broader database support*). This validates
 ADR-0003's contract for a native async driver. PostgreSQL (020) and Snowflake
 (021) remain. A new backlog item covers verifying other server versions (MySQL
 8.0 and 9.x, MariaDB). Sharing the control connection touches
-[pooling (046)](../../../docs/backlog/046-adapter-pooling.md) but does not
+[pooling (046)](../../../../docs/backlog/046-adapter-pooling.md) but does not
 implement it.
 
 **Repositories.** Only dbridge changes. dbridge.nvim already renders Scope Levels,

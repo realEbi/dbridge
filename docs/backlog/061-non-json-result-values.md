@@ -14,8 +14,8 @@ arrived within 120 seconds. The stdio writer serializes replies with plain
 `json.dumps` (`protocol/transport/stdio.py`), and no layer converts `Decimal`,
 date/time, or `bytes` values. The failure path after the serialization error
 was not traced: it is not yet known whether the request task dies or the error is
-only logged. Any common DuckDB type is affected, and MySQL will return
-`Decimal`, `datetime`, and `bytes` constantly.
+only logged. DuckDB and MySQL return `Decimal`, date/time, and `bytes` values for
+common column types, so the limitation affects both Adapters.
 
 ## Desired outcome
 
@@ -27,7 +27,7 @@ of leaving the request unanswered.
 
 ## Notes and references
 
-Should land before or alongside the MySQL Adapter
-([add-mysql-adapter](../../openspec/changes/add-mysql-adapter/design.md), Risks).
+The MySQL Adapter shipped with this shared limitation documented and deferred
+([add-mysql-adapter](../../openspec/changes/archive/2026-09-25-add-mysql-adapter/design.md), Risks).
 Clients currently render values as received, so the chosen representation is a
 protocol change clients may need to follow.

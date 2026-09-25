@@ -47,7 +47,7 @@ The spike established these MySQL facts, which shape every decision below:
 - Running a MySQL service in CI. MySQL is an optional feature, verified locally.
 - Supporting proxies or load balancers, other server versions, TLS options, Unix
   sockets, or listing `TEMPORARY` tables.
-- Pooling Session connections ([046](../../../docs/backlog/046-adapter-pooling.md)).
+- Pooling Session connections ([046](../../../../docs/backlog/046-adapter-pooling.md)).
   Only the control connection is shared.
 - Converting result values that JSON cannot encode. That is shared with DuckDB;
   see Risks.
@@ -145,6 +145,19 @@ rows. When the cap is reached, the next step depends on the request:
 
 The reply carries the last result set that has columns.
 
+Implementation inspection of aiomysql 0.3.2 found that `SSCursor.nextset()`
+inherits a buffered transition, and `Connection.next_result()` has no unbuffered
+argument. The Adapter therefore advances later results through
+`connection._read_query_result(unbuffered=True)` and `cursor._do_get_result()`,
+using `connection._result.has_next` to detect them. This small private bridge
+keeps later procedure and multi-statement result sets bounded too; testing only
+the first result set would not establish the planned memory guarantee.
+
+sqlglot 30.11 parses MySQL `TABLE name` as a column/alias expression rather than a
+query. Classification validates its equivalent `SELECT * FROM name`, accepting
+only a single table with optional ordering/limit, and rejecting aliases, joins,
+filters, or additional statements. The original SQL still goes to MySQL unchanged.
+
 Rejected alternatives:
 
 - **Always kill.** A kill can cut a procedure's later writes.
@@ -207,6 +220,13 @@ follows ADR-0003's rule that cancelling a disconnect does not reverse it.
 Whole-packet writes keep the transport's byte stream ordered, and replies are
 never read during shutdown.
 
+The shared control stream remains open until the last Session reference is
+released, allowing every Session in one synchronous abandonment pass to send its
+kills. Raw writes mark it as having unread replies: if another Session remains
+live, its next ordinary control operation discards and reopens that stream.
+Pending connection handshakes and their outer waiters are tracked separately so
+abandonment can close an unfinished login and release a connect request too.
+
 ### 9. Local real-server verification
 
 Tests live in `tests/adapters/mysql/` and skip unless `DBRIDGE_TEST_MYSQL_HOST` or
@@ -241,8 +261,11 @@ the proxy limitation.
 - **[Kill-discarded-when-idle verified on 8.4.11 only]** The wrong-statement guard
   relies on this server behavior. → New backlog item for 8.0, 9.x, and MariaDB.
   The README names 8.4 as the only verified version.
-- **[Private aiomysql attributes]** `_result.unbuffered_active` and `_writer` may
-  change. → Pin below 0.4, and real-server tests cover both paths.
+- **[Private aiomysql internals]** The spike used `_result.unbuffered_active` and
+  `_writer`. Production also uses `_result.has_next`, `_read_query_result`, and
+  `_do_get_result` to keep later result sets unbuffered, as described above.
+  → Pin below 0.4, and real-server tests cover cancellation, abandonment, and
+  later result sets.
 - **[aiomysql release cadence]** The last release was 2025-10-22. → The Channel
   design is driver-neutral, and the asyncmy spike shows a working fallback.
 - **[A result arriving just after the kill is sent is reported as cancelled]** The
@@ -259,7 +282,7 @@ the proxy limitation.
   `DECIMAL`, `DATE`, or `BLOB` values sent no reply within 120 s, because the stdio
   writer uses plain `json.dumps`. MySQL returns `Decimal`, `datetime`, and `bytes`
   often. → Pre-existing and shared with DuckDB, so it is not fixed here. It is
-  tracked in [backlog 061](../../../docs/backlog/061-non-json-result-values.md);
+  tracked in [backlog 061](../../../../docs/backlog/061-non-json-result-values.md);
   the MySQL tests avoid depending on it.
 
 ## Migration Plan

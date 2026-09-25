@@ -141,6 +141,64 @@ These queries read data only. Disconnect both Sessions when finished. The server
 owns cancellation and ordering; the companion client owns its command, progress
 state, and cancellation presentation.
 
+## MySQL checks
+
+With Docker and Compose available, run from this checkout:
+
+```console
+make mysql-up
+make test-mysql
+```
+
+The first command starts MySQL 8.4 on `127.0.0.1:33084`, waits for the seeded
+1,000,000-row table, and leaves the server running. The second runs the real-server
+regressions. Configure your client to launch
+`uv run --extra mysql python -m dbridge.server` from this checkout with the default
+`dbridge_max_rows=100`. Use temporary Profile storage for disposable test Profiles,
+or connect inline with these `dbridge/connect` parameters:
+
+```json
+{
+  "adapter": "mysql",
+  "config": {
+    "host": "127.0.0.1",
+    "port": 33084,
+    "user": "dbridge",
+    "password": "dbridge",
+    "database": "dbridge_test"
+  }
+}
+```
+
+Retain the returned `session_id`; expect dialect `mysql`, one level named
+`database`, and `default_path: ["dbridge_test"]`. For a saved Profile, pass the
+same configuration and a name to `dbridge/saveProfile`, then connect by name.
+Use the returned Session for each check:
+
+| Check | Expected result |
+|---|---|
+| Call `dbridge/listDatabases` | Accessible databases include `dbridge_test` and `dbridge_other`; system databases returned to this account are marked internal. |
+| Call `dbridge/listTables` with `path: ["dbridge_test"]` | Includes the `million_rows` table and `tiny_view`; identifiers use backticks around the database and table. |
+| Call `dbridge/getTableSchema` with that path and `name: "million_rows"` | Columns are `n`, then `payload`; the primary key is named `PRIMARY` with columns `["n"]`. |
+| Execute `SELECT * FROM dbridge_test.million_rows` | 100 rows, a truncation warning, and a prompt reply without fetching all one million rows. |
+| Execute `SET @marker = 7; CREATE TEMPORARY TABLE manual_marker (n INT)` | Completes normally. The temporary table remains queryable but is absent from browsing. |
+| Execute `SELECT n, SLEEP(30) FROM dbridge_test.million_rows LIMIT 2`, then cancel while it runs | `QUERY_CANCELLED` (-32004); no partial result. |
+| Execute `SELECT @marker AS marker, COUNT(*) AS n FROM manual_marker` after cancellation | One row `[7, 0]`, confirming the same Session retained its state. |
+| Execute `USE dbridge_other`, then call `dbridge/refreshSchema` | The same Session reports `default_path: ["dbridge_other"]`. |
+
+In Neovim use `:DbridgeCancel` for the running query. With a raw DSP client, send
+the long execute with id `42`, then send
+`{"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":42}}`
+without an outer id. Correlate replies by id; metadata on this MySQL Session can
+complete while the query is running. The cancel notification has no reply.
+
+Disconnect the Session, remove any disposable Profile through
+`dbridge/deleteProfile`, and run `make mysql-down` when finished. That command
+deletes the local test server and its data. For test variables and a different
+local port, see [development setup](development.md#local-mysql-verification).
+Use direct MySQL connections; the [README's MySQL limits](../README.md#mysql)
+cover unsupported proxies, other server versions, and result-value limitations.
+
 ## Attached-container checks
 
 Use an isolated in-memory Profile for each Adapter, so these checks do not change

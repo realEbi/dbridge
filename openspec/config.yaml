@@ -5,8 +5,9 @@ context: |
   Read AGENTS.md for workflow and document ownership, CONTEXT.md for vocabulary,
   docs/architecture.md for implemented behavior, and relevant docs/adr/ decisions.
   Read docs/roadmap.md and the relevant docs/backlog/ item for future work.
-  The server uses asyncio orchestration with Adapter-owned SQLite and DuckDB
-  execution lanes, cancellation, and bounded shutdown. ADR-0003 supersedes ADR-0001.
+  The server uses asyncio orchestration with Adapter-owned SQLite/DuckDB Lanes and
+  optional MySQL native async Channels, cancellation, and bounded shutdown.
+  ADR-0003 supersedes ADR-0001; ADR-0004 records MySQL interruption and limits.
   Future architecture requires an explicit change; distinguish plans from implementation.
   The server owns the DSP contract. Client repositories own editor/UI behavior.
   Plan in the original checkout; finalized plans are delivered to the PR target.
