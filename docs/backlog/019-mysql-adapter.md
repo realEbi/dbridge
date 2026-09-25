@@ -1,8 +1,8 @@
 # 019 - Port and register the MySQL adapter
 
 - Repo: dbridge
-- Status: deferred
-- Change: none
+- Status: planned
+- Change: [add-mysql-adapter](../../openspec/changes/add-mysql-adapter/proposal.md)
 - Origin: Legacy backlog 4.4; original design 7; retained from revision `80d71d4`.
 
 ## Problem / opportunity

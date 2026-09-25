@@ -84,6 +84,7 @@ Relevant source/tests, dependencies, and questions to resolve before planning.
 - [056 - Stop fetching rows beyond the row cap](056-bounded-result-fetch.md)
 - [057 - Distinguish a JSON null body from end of input](057-json-null-frame-ends-input.md)
 - [058 - Reject negative query row caps](058-negative-max-rows.md)
+- [061 - Reply to queries that return non-JSON values](061-non-json-result-values.md)
 
 ## Adapters and metadata
 
@@ -97,6 +98,7 @@ Relevant source/tests, dependencies, and questions to resolve before planning.
 - [045 - Support persistent server settings](045-settings-file.md)
 - [046 - Manage pooled adapter connections](046-adapter-pooling.md)
 - [047 - Browse database indexes](047-index-introspection.md)
+- [060 - Verify the MySQL Adapter on other server versions](060-mysql-server-versions.md)
 
 ## SQL assistance
 
